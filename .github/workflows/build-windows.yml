@@ -27,18 +27,22 @@ jobs:
         with:
           dotnet-version: '8.0.408'
 
-      - name: Restore packages
-        run: dotnet restore src/HonorControl/HonorControl.csproj --runtime win-x64
+      - name: Set up Visual Studio MSBuild
+        uses: microsoft/setup-msbuild@v2
+        with:
+          vs-version: '[17.0,18.0)'
 
-      - name: Publish self-contained application
+      - name: Publish self-contained application with Visual Studio MSBuild
         run: >-
-          dotnet publish src/HonorControl/HonorControl.csproj
-          --configuration Release
-          --runtime win-x64
-          --self-contained true
-          --no-restore
-          -p:WindowsAppSDKSelfContained=true
-          --output artifacts/HonorControl
+          msbuild src/HonorControl/HonorControl.csproj
+          /restore
+          /target:Publish
+          /property:Configuration=Release
+          /property:Platform=x64
+          /property:RuntimeIdentifier=win-x64
+          /property:SelfContained=true
+          /property:WindowsAppSDKSelfContained=true
+          /property:PublishDir=${{ github.workspace }}\artifacts\HonorControl\
 
       - name: Upload application artifact
         uses: actions/upload-artifact@v4

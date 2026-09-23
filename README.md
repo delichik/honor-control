@@ -28,7 +28,7 @@ src/HonorControl/
 
 仓库包含 `.github/workflows/build-windows.yml`。推送 `src/HonorControl/`、解决方案或该工作流的改动后会自动构建；也可在 GitHub 的 **Actions → Build Honor Control → Run workflow** 手动触发。
 
-工作流在 GitHub 的 Windows runner 上还原 .NET 8 和 Windows App SDK 依赖，发布自包含 `win-x64` 版本，并上传 `HonorControl-win-x64` artifact。下载并解压该 artifact 后，运行其中的 `HonorControl.exe`；保留同目录的全部 DLL 和运行时文件。
+工作流在 GitHub 的 Windows runner 上还原 .NET 8 和 Windows App SDK 依赖，并使用 Visual Studio 的 `MSBuild.exe`（含 Windows App SDK 生成 PRI 所需的 Appx 打包任务）发布自包含 `win-x64` 版本，再上传 `HonorControl-win-x64` artifact。下载并解压该 artifact 后，运行其中的 `HonorControl.exe`；保留同目录的全部 DLL 和运行时文件。
 
 当前工作流不会发布 GitHub Release，也没有代码签名。未签名的自包含 exe 可能触发 Windows SmartScreen；如需面向外部分发，应另行配置代码签名证书与受保护的 GitHub Actions secret。
 
