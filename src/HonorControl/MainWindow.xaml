@@ -102,7 +102,7 @@
                         <controls:InfoBar IsOpen="True" IsClosable="False" Severity="{Binding PerformanceRequirementSeverity}" Message="{Binding PerformanceRequirementText}" />
                         <controls:RadioButtons x:Name="PerformanceModeSelector" Header="选择待应用的模式" SelectedIndex="0" SelectionChanged="PerformanceModeSelector_SelectionChanged" IsEnabled="{Binding CanConfigurePerformance}">
                             <controls:RadioButton Tag="1" Content="智能模式 — 适合日常办公与轻负载，平衡响应、噪声和续航。" />
-                            <controls:RadioButton Tag="2" Content="高能模式 — 适合编译、渲染和游戏；功耗、温度和风扇噪声会提高。" />
+                            <controls:RadioButton Tag="2" Content="高能模式 — 适合编译、渲染和游戏；功耗、温度和风扇噪声会提高。" IsEnabled="{Binding CanSelectHighPerformance}" />
                         </controls:RadioButtons>
                         <Border Padding="16" CornerRadius="8" Background="{ThemeResource ControlFillColorDefaultBrush}">
                             <Grid ColumnSpacing="16">

@@ -6,6 +6,7 @@ on:
     paths:
       - 'src/HonorControl/**'
       - 'HonorControl.sln'
+      - 'global.json'
       - '.github/workflows/build-windows.yml'
 
 permissions:
@@ -24,7 +25,7 @@ jobs:
       - name: Set up .NET 8
         uses: actions/setup-dotnet@v4
         with:
-          dotnet-version: '8.0.x'
+          dotnet-version: '8.0.408'
 
       - name: Restore packages
         run: dotnet restore src/HonorControl/HonorControl.csproj --runtime win-x64
