@@ -1,0 +1,48 @@
+name: Build Honor Control
+
+on:
+  workflow_dispatch:
+  push:
+    paths:
+      - 'src/HonorControl/**'
+      - 'HonorControl.sln'
+      - '.github/workflows/build-windows.yml'
+
+permissions:
+  contents: read
+
+jobs:
+  build:
+    name: Publish WinUI 3 x64
+    runs-on: windows-latest
+    timeout-minutes: 20
+
+    steps:
+      - name: Check out source
+        uses: actions/checkout@v4
+
+      - name: Set up .NET 8
+        uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: '8.0.x'
+
+      - name: Restore packages
+        run: dotnet restore src/HonorControl/HonorControl.csproj
+
+      - name: Publish self-contained application
+        run: >-
+          dotnet publish src/HonorControl/HonorControl.csproj
+          --configuration Release
+          --runtime win-x64
+          --self-contained true
+          --no-restore
+          -p:WindowsAppSDKSelfContained=true
+          --output artifacts/HonorControl
+
+      - name: Upload application artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: HonorControl-win-x64
+          path: artifacts/HonorControl
+          if-no-files-found: error
+          retention-days: 14
