@@ -73,7 +73,7 @@ namespace HonorControl.Services
             {
                 foreach (ManagementObject candidate in objects)
                 {
-                    string name = Convert.ToString(candidate["InstanceName"]);
+                    string? name = Convert.ToString(candidate["InstanceName"]);
                     if (!String.Equals(name, InstanceName, StringComparison.OrdinalIgnoreCase))
                     {
                         candidate.Dispose();
@@ -101,13 +101,13 @@ namespace HonorControl.Services
 
         private static byte[] ConvertToByteArray(object value)
         {
-            byte[] bytes = value as byte[];
+            byte[]? bytes = value as byte[];
             if (bytes != null)
             {
                 return bytes;
             }
 
-            Array values = value as Array;
+            Array? values = value as Array;
             if (values == null)
             {
                 return new byte[0];

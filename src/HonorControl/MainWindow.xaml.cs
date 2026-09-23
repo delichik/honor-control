@@ -1,4 +1,5 @@
 using Microsoft.UI.Composition.SystemBackdrops;
+using Microsoft.UI;
 using Microsoft.UI.Windowing;
 using Microsoft.UI.Xaml;
 using Microsoft.UI.Xaml.Controls;
@@ -22,7 +23,7 @@ public sealed partial class MainWindow : Window
 
         viewModel = new MainViewModel();
         RootGrid.DataContext = viewModel;
-        Loaded += async (_, _) => await viewModel.RefreshAsync();
+        RootGrid.Loaded += async (_, _) => await viewModel.RefreshAsync();
     }
 
     private void ConfigureWindowSize()

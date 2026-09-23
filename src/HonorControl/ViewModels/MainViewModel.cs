@@ -276,7 +276,11 @@ public sealed class MainViewModel : ViewModelBase
 
     private bool TryGetCustomThreshold(out int start, out int end, bool updateMessage = true)
     {
-        bool valid = int.TryParse(CustomChargeStart, out start) && int.TryParse(CustomChargeEnd, out end) && start is >= 0 and <= 100 && end is >= 0 and <= 100 && start <= end;
+        start = 0;
+        end = 0;
+        bool startParsed = int.TryParse(CustomChargeStart, out start);
+        bool endParsed = int.TryParse(CustomChargeEnd, out end);
+        bool valid = startParsed && endParsed && start is >= 0 and <= 100 && end is >= 0 and <= 100 && start <= end;
         if (!valid && updateMessage)
         {
             CustomChargeValidation = "请输入 0–100 的整数，且开始值不得大于停止值。";
