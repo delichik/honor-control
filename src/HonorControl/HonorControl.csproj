@@ -9,6 +9,7 @@
     <EnableMsixTooling>false</EnableMsixTooling>
     <Platforms>x64</Platforms>
     <PlatformTarget>x64</PlatformTarget>
+    <RuntimeIdentifiers>win-x64</RuntimeIdentifiers>
     <Nullable>enable</Nullable>
     <ImplicitUsings>enable</ImplicitUsings>
   </PropertyGroup>
