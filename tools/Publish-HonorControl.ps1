@@ -52,7 +52,22 @@ if ($xamlDiagnostics.Count -gt 0) {
     $errorLines += $xamlDiagnostics
 }
 if ($errorLines.Count -eq 0) {
-    $errorLines = @($logLines | Select-Object -Last 80)
+    $focusIndexes = [System.Collections.Generic.List[int]]::new()
+    for ($index = 0; $index -lt $logLines.Count; $index++) {
+        if ($logLines[$index] -match 'MarkupCompilePass1|XamlCompiler\.exe|CompileXaml|FAILED|Exception|exit(?:ed)? with code') {
+            $focusIndexes.Add($index)
+        }
+    }
+    $contextIndexes = [System.Collections.Generic.SortedSet[int]]::new()
+    foreach ($focusIndex in $focusIndexes | Select-Object -Last 4) {
+        for ($index = [Math]::Max(0, $focusIndex - 2); $index -le [Math]::Min($logLines.Count - 1, $focusIndex + 4); $index++) {
+            $contextIndexes.Add($index) | Out-Null
+        }
+    }
+    $errorLines = @($contextIndexes | ForEach-Object { "[$($_ + 1)] $($logLines[$_])" })
+}
+if ($errorLines.Count -eq 0) {
+    $errorLines = @($logLines | Select-Object -Last 9)
 }
 
 if (-not [string]::IsNullOrWhiteSpace($env:GITHUB_STEP_SUMMARY)) {
@@ -61,7 +76,7 @@ if (-not [string]::IsNullOrWhiteSpace($env:GITHUB_STEP_SUMMARY)) {
     Add-Content -LiteralPath $env:GITHUB_STEP_SUMMARY -Encoding utf8 -Value '```'
 }
 
-foreach ($line in $errorLines | Select-Object -Last 30) {
+foreach ($line in $errorLines | Select-Object -First 9) {
     $annotation = $line.Replace('%', '%25').Replace("`r", '%0D').Replace("`n", '%0A')
     Write-Output "::error::$annotation"
 }
