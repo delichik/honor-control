@@ -17,6 +17,7 @@ $arguments = @(
     '/property:Configuration=Release'
     '/property:Platform=x64'
     '/property:RuntimeIdentifier=win-x64'
+    '/verbosity:diagnostic'
     "/property:SelfContained=$($SelfContained.ToString().ToLowerInvariant())"
     "/property:WindowsAppSDKSelfContained=$($WindowsAppSdkSelfContained.ToString().ToLowerInvariant())"
     "/property:PublishDir=$PublishDirectory"
@@ -33,6 +34,23 @@ $errorLines = @($logLines | Where-Object {
     $_ -match '(^|:\s+)error\s+[A-Z]+\d+:' -or
     $_ -match '\berror\s+(MSB|NETSDK|CS|XLS)\d+\b'
 })
+
+$xamlDiagnostics = [System.Collections.Generic.List[string]]::new()
+$objRoot = Join-Path $PWD 'src\HonorControl\obj'
+if (Test-Path -LiteralPath $objRoot) {
+    $outputFiles = @(Get-ChildItem -LiteralPath $objRoot -Recurse -File -ErrorAction SilentlyContinue | Where-Object {
+        $_.Name -in @('output.json', 'XamlCompilerError.xml') -or $_.Extension -in @('.err', '.log')
+    })
+    foreach ($file in $outputFiles) {
+        $xamlDiagnostics.Add("--- $($file.FullName) ---")
+        foreach ($line in Get-Content -LiteralPath $file.FullName -ErrorAction SilentlyContinue | Select-Object -First 200) {
+            $xamlDiagnostics.Add($line)
+        }
+    }
+}
+if ($xamlDiagnostics.Count -gt 0) {
+    $errorLines += $xamlDiagnostics
+}
 if ($errorLines.Count -eq 0) {
     $errorLines = @($logLines | Select-Object -Last 80)
 }
