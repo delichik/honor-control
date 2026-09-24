@@ -22,13 +22,18 @@ src/HonorControl/
 
 仓库通过 `global.json` 固定使用 .NET SDK `8.0.408`，避免被机器上更高版本的 SDK 自动选中；Windows App SDK 1.6 当前应使用该 .NET 8 SDK 构建。
 
-当前工作站未执行编译；这不影响项目结构或源代码交付。编译后的首次运行会出现 UAC 提示，这是 BIOS WMI 接口的必要权限。
+当前工作站没有本地 .NET SDK，仓库以 GitHub Actions 的 Windows 构建结果为准。编译后的首次运行会出现 UAC 提示，这是 BIOS WMI 接口的必要权限。
 
 ## GitHub Actions 构建
 
 仓库包含 `.github/workflows/build-windows.yml`。推送 `src/HonorControl/`、解决方案或该工作流的改动后会自动构建；也可在 GitHub 的 **Actions → Build Honor Control → Run workflow** 手动触发。
 
-工作流在 GitHub 的 Windows runner 上还原 .NET 8 和 Windows App SDK 依赖，并使用 Visual Studio 的 `MSBuild.exe`（含 Windows App SDK 生成 PRI 所需的 Appx 打包任务）发布自包含 `win-x64` 版本，再上传 `HonorControl-win-x64` artifact。下载并解压该 artifact 后，运行其中的 `HonorControl.exe`；保留同目录的全部 DLL 和运行时文件。
+工作流在 GitHub 的 Windows runner 上还原 .NET 8 和 Windows App SDK 依赖，并使用 Visual Studio 的 `MSBuild.exe`（含 Windows App SDK 生成 PRI 所需的 Appx 打包任务）同时发布两个 `win-x64` artifact：
+
+- `HonorControl-win-x64`：便携版，包含 .NET 8 与 Windows App SDK 运行时；下载并解压后可直接运行。
+- `HonorControl-win-x64-lightweight`：轻量版，不携带上述两套运行时；目标电脑必须预先安装 x64 的 **.NET 8 Desktop Runtime** 和 **Windows App SDK 1.6 Runtime**。
+
+无论选择哪个版本，都应完整解压 artifact，并保留 `HonorControl.exe` 同目录的 DLL、PRI 和原生运行时文件。
 
 当前工作流不会发布 GitHub Release，也没有代码签名。未签名的自包含 exe 可能触发 Windows SmartScreen；如需面向外部分发，应另行配置代码签名证书与受保护的 GitHub Actions secret。
 
@@ -43,12 +48,12 @@ src/HonorControl/
 
 ## 交互与视觉设计
 
-- 单页硬件控制台，而非堆叠的默认控件或伪仪表盘；普通用户只看结论与可执行操作。
+- 使用概览、智能充电、性能模式、诊断和设置五个独立导航内容区，避免把所有控制堆在同一页面。
 - 性能模式先选择，再在“待应用变更”区确认，避免误触直接写入 BIOS。
 - 每次智能充电写入都展示下发、BIOS 响应与阈值回读验证；性能写入只报告“BIOS 接收命令 + 原始查询刷新”，不把未验证模式语义伪装为成功，并保留最近 8 条会话操作记录。
 - 原始 WMI 返回和接口错误收纳于“诊断详情”，不干扰日常操作。
 - 使用 WinUI 3 Fluent 控件、Mica 系统材质、原生 InfoBar、ContentDialog、RadioButtons、Expander 和自动可访问的键盘交互。
-- 支持浅色和深色主题；主题切换使用 WinUI 的 `RequestedTheme`，不手写模拟 Windows 控件。
+- 设置页支持跟随系统、浅色和深色主题；偏好保存在当前用户的 `%LocalAppData%\HonorControl\settings.json`。
 
 所有请求固定为 64 字节，通过 Windows CIM/MI 调用 `root\\wmi:OemWMIMethod` 的 `ACPI\PNP0C14\HWMI_0` 实例及 `OemWMIfun` 方法；这与研究阶段成功的 `Get-CimInstance` / `Invoke-CimMethod` 路径一致。项目不复制、加载或分发荣耀 DLL。
 

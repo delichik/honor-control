@@ -14,9 +14,23 @@ permissions:
 
 jobs:
   build:
-    name: Publish WinUI 3 x64
+    name: Publish WinUI 3 x64 (${{ matrix.displayName }})
     runs-on: windows-2022
     timeout-minutes: 20
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - displayName: Portable
+            selfContained: 'true'
+            windowsAppSdkSelfContained: 'true'
+            outputDirectory: HonorControl
+            artifactName: HonorControl-win-x64
+          - displayName: Lightweight
+            selfContained: 'false'
+            windowsAppSdkSelfContained: 'false'
+            outputDirectory: HonorControl-lightweight
+            artifactName: HonorControl-win-x64-lightweight
 
     steps:
       - name: Check out source
@@ -32,7 +46,7 @@ jobs:
         with:
           vs-version: '[17.0,18.0)'
 
-      - name: Publish self-contained application with Visual Studio MSBuild
+      - name: Publish ${{ matrix.displayName }} application with Visual Studio MSBuild
         run: >-
           msbuild src/HonorControl/HonorControl.csproj
           /restore
@@ -40,30 +54,41 @@ jobs:
           /property:Configuration=Release
           /property:Platform=x64
           /property:RuntimeIdentifier=win-x64
-          /property:SelfContained=true
-          /property:WindowsAppSDKSelfContained=true
-          /property:PublishDir=${{ github.workspace }}\artifacts\HonorControl\
+          /property:SelfContained=${{ matrix.selfContained }}
+          /property:WindowsAppSDKSelfContained=${{ matrix.windowsAppSdkSelfContained }}
+          /property:PublishDir=${{ github.workspace }}\artifacts\${{ matrix.outputDirectory }}\
 
       - name: Verify required application files
         shell: pwsh
         run: |
-          $requiredFiles = @(
-            '${{ github.workspace }}\artifacts\HonorControl\HonorControl.exe',
-            '${{ github.workspace }}\artifacts\HonorControl\HonorControl.pri',
-            '${{ github.workspace }}\artifacts\HonorControl\Microsoft.UI.Xaml.dll',
-            '${{ github.workspace }}\artifacts\HonorControl\Microsoft.Management.Infrastructure.dll',
-            '${{ github.workspace }}\artifacts\HonorControl\Microsoft.Management.Infrastructure.Native.dll',
-            '${{ github.workspace }}\artifacts\HonorControl\microsoft.management.infrastructure.native.unmanaged.dll'
+          $publishRoot = '${{ github.workspace }}\artifacts\${{ matrix.outputDirectory }}'
+          $requiredNames = @(
+            'HonorControl.exe',
+            'HonorControl.pri',
+            'Microsoft.Management.Infrastructure.dll',
+            'Microsoft.Management.Infrastructure.Native.dll',
+            'microsoft.management.infrastructure.native.unmanaged.dll'
           )
+          if ('${{ matrix.windowsAppSdkSelfContained }}' -eq 'true') {
+            $requiredNames += 'Microsoft.UI.Xaml.dll'
+          }
+          $requiredFiles = $requiredNames | ForEach-Object { Join-Path $publishRoot $_ }
           $missingFiles = $requiredFiles | Where-Object { -not (Test-Path -LiteralPath $_ -PathType Leaf) }
           if ($missingFiles.Count -gt 0) {
             throw "Published application is incomplete. Missing: $($missingFiles -join ', ')"
+          }
+          if ('${{ matrix.selfContained }}' -eq 'false') {
+            $unexpectedNames = @('System.Private.CoreLib.dll', 'coreclr.dll', 'Microsoft.UI.Xaml.dll')
+            $unexpectedFiles = $unexpectedNames | ForEach-Object { Join-Path $publishRoot $_ } | Where-Object { Test-Path -LiteralPath $_ -PathType Leaf }
+            if ($unexpectedFiles.Count -gt 0) {
+              throw "Lightweight application unexpectedly contains self-contained runtime files: $($unexpectedFiles -join ', ')"
+            }
           }
 
       - name: Upload application artifact
         uses: actions/upload-artifact@v4
         with:
-          name: HonorControl-win-x64
-          path: artifacts/HonorControl
+          name: ${{ matrix.artifactName }}
+          path: artifacts/${{ matrix.outputDirectory }}
           if-no-files-found: error
           retention-days: 14
