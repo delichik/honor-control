@@ -1,16 +1,15 @@
 using System;
 using System.Collections.Generic;
-using System.Management;
-using System.Runtime.InteropServices;
 using System.Text;
 using System.Threading;
 using HonorControl.Models;
+using Microsoft.Management.Infrastructure;
 
 namespace HonorControl.Services
 {
     public sealed class OemWmiClient
     {
-        private const string NamespacePath = @"\\.\root\wmi";
+        private const string NamespacePath = @"root\wmi";
         private const string PreferredInstance = @"ACPI\PNP0C14\HWMI_0";
 
         public ChargeThreshold GetChargeThreshold()
@@ -66,93 +65,78 @@ namespace HonorControl.Services
             input[1] = (byte)((command >> 8) & 0xFF);
             Array.Copy(payload, 0, input, 2, payload.Length);
 
-            ConnectionOptions options = new ConnectionOptions
-            {
-                Impersonation = ImpersonationLevel.Impersonate,
-                EnablePrivileges = true
-            };
-            ManagementScope scope = new ManagementScope(NamespacePath, options);
+            CimSession session;
             try
             {
-                scope.Connect();
+                session = CimSession.Create(null);
             }
             catch (Exception exception)
             {
-                throw CreateDiagnosticException("连接 root\\wmi", Array.Empty<Candidate>(), exception);
+                throw CreateDiagnosticException("创建本地 CIM 会话", Array.Empty<Candidate>(), exception);
             }
 
-            try
+            using (session)
             {
-                using (ManagementObjectSearcher searcher = new ManagementObjectSearcher(scope, new ObjectQuery("SELECT * FROM OemWMIMethod")))
-                using (ManagementObjectCollection objects = searcher.Get())
+                List<Candidate> candidates;
+                try
                 {
-                    List<Candidate> candidates;
-                    try
+                    IEnumerable<CimInstance> instances = session.QueryInstances(NamespacePath, "WQL", "SELECT * FROM OemWMIMethod");
+                    candidates = GetCandidates(instances);
+                }
+                catch (Exception exception)
+                {
+                    throw CreateDiagnosticException("通过 CIM 枚举 OemWMIMethod", Array.Empty<Candidate>(), exception);
+                }
+
+                try
+                {
+                    Exception? lastTransportError = null;
+                    string? lastStage = null;
+                    List<string> attemptFailures = new List<string>();
+                    foreach (Candidate candidate in candidates)
                     {
-                        candidates = GetCandidates(objects);
-                    }
-                    catch (Exception exception)
-                    {
-                        throw CreateDiagnosticException("读取 OemWMIMethod 候选实例", Array.Empty<Candidate>(), exception);
-                    }
-                    try
-                    {
-                        Exception? lastTransportError = null;
-                        string? lastStage = null;
-                        List<string> attemptFailures = new List<string>();
-                        foreach (Candidate candidate in candidates)
+                        if (!candidate.IsEligible) continue;
+                        for (int attempt = 0; attempt < 2; attempt++)
                         {
-                            if (!candidate.IsEligible) continue;
-                            for (int attempt = 0; attempt < 2; attempt++)
+                            string stage = $"通过 CIM 调用 OemWMIfun 命令 0x{command:X4}（{candidate.InstanceName}，第 {attempt + 1} 次）";
+                            try { return Invoke(session, candidate.Object, input); }
+                            catch (Exception exception) when (IsTransportError(exception))
                             {
-                                string stage = $"调用 OemWMIfun 命令 0x{command:X4}（{candidate.InstanceName}，第 {attempt + 1} 次）";
-                                try { return Invoke(candidate.Object, input); }
-                                catch (Exception exception) when (IsTransportError(exception))
-                                {
-                                    lastTransportError = exception;
-                                    lastStage = stage;
-                                    attemptFailures.Add(stage + "：" + FormatExceptionChain(exception));
-                                    if (attempt == 0) Thread.Sleep(100);
-                                }
-                                catch (Exception exception)
-                                {
-                                    attemptFailures.Add(stage + "：" + FormatExceptionChain(exception));
-                                    throw CreateDiagnosticException(stage, candidates, exception, attemptFailures);
-                                }
+                                lastTransportError = exception;
+                                lastStage = stage;
+                                attemptFailures.Add(stage + "：" + FormatExceptionChain(exception));
+                                if (attempt == 0) Thread.Sleep(100);
+                            }
+                            catch (Exception exception)
+                            {
+                                attemptFailures.Add(stage + "：" + FormatExceptionChain(exception));
+                                throw CreateDiagnosticException(stage, candidates, exception, attemptFailures);
                             }
                         }
+                    }
 
-                        if (lastTransportError != null)
-                            throw CreateDiagnosticException(lastStage ?? $"调用 OemWMIfun 命令 0x{command:X4}", candidates, lastTransportError, attemptFailures);
-                        throw new InvalidOperationException($"未找到活动的荣耀 HWMI 接口。诊断：命令=0x{command:X4}；候选实例=" + FormatCandidates(candidates) + "。此机型可能不支持该接口。");
-                    }
-                    finally
-                    {
-                        foreach (Candidate candidate in candidates) candidate.Dispose();
-                    }
+                    if (lastTransportError != null)
+                        throw CreateDiagnosticException(lastStage ?? $"通过 CIM 调用 OemWMIfun 命令 0x{command:X4}", candidates, lastTransportError, attemptFailures);
+                    throw new InvalidOperationException($"未找到活动的荣耀 HWMI 接口。诊断：命令=0x{command:X4}；候选实例=" + FormatCandidates(candidates) + "。此机型可能不支持该接口。");
                 }
-            }
-            catch (InvalidOperationException)
-            {
-                throw;
-            }
-            catch (Exception exception)
-            {
-                throw CreateDiagnosticException("枚举 OemWMIMethod", Array.Empty<Candidate>(), exception);
+                finally
+                {
+                    foreach (Candidate candidate in candidates) candidate.Dispose();
+                }
             }
         }
 
-        private static List<Candidate> GetCandidates(ManagementObjectCollection objects)
+        private static List<Candidate> GetCandidates(IEnumerable<CimInstance> instances)
         {
             List<Candidate> result = new List<Candidate>();
             try
             {
-                foreach (ManagementObject item in objects)
+                foreach (CimInstance item in instances)
                 {
                     try
                     {
-                        string? instanceName = Convert.ToString(item["InstanceName"]);
-                        bool active = IsActive(item["Active"]);
+                        string? instanceName = Convert.ToString(GetPropertyValue(item, "InstanceName"));
+                        bool active = IsActive(GetPropertyValue(item, "Active"));
                         result.Add(new Candidate(item, instanceName, active));
                     }
                     catch
@@ -171,6 +155,15 @@ namespace HonorControl.Services
             }
         }
 
+        private static object? GetPropertyValue(CimInstance instance, string propertyName)
+        {
+            foreach (CimProperty property in instance.CimInstanceProperties)
+            {
+                if (string.Equals(property.Name, propertyName, StringComparison.OrdinalIgnoreCase)) return property.Value;
+            }
+            return null;
+        }
+
         private static int CandidateRank(Candidate candidate)
         {
             if (string.Equals(candidate.InstanceName, PreferredInstance, StringComparison.OrdinalIgnoreCase)) return 0;
@@ -178,21 +171,28 @@ namespace HonorControl.Services
             return 2;
         }
 
-        private static Response Invoke(ManagementObject candidate, byte[] input)
+        private static Response Invoke(CimSession session, CimInstance candidate, byte[] input)
         {
-            using (ManagementBaseObject parameters = candidate.GetMethodParameters("OemWMIfun"))
+            using (CimMethodParametersCollection parameters = new CimMethodParametersCollection())
             {
-                parameters["u8Input"] = input;
-                ManagementBaseObject? result = candidate.InvokeMethod("OemWMIfun", parameters, null);
-                if (result == null) throw new InvalidOperationException("WMI 方法没有返回结果对象。");
-                using (result)
+                parameters.Add(CimMethodParameter.Create("u8Input", input, CimFlags.In));
+                using (CimMethodResult result = session.InvokeMethod(NamespacePath, candidate, "OemWMIfun", parameters))
                 {
                     ValidateTransportResult(result);
-                    byte[] output = ConvertToByteArray(result["u8Output"]);
+                    byte[] output = ConvertToByteArray(GetOutParameterValue(result, "u8Output"));
                     if (output.Length == 0) throw new InvalidOperationException("BIOS WMI 调用没有返回 u8Output。");
                     return new Response(output[0], output);
                 }
             }
+        }
+
+        private static object? GetOutParameterValue(CimMethodResult result, string parameterName)
+        {
+            foreach (CimMethodParameter parameter in result.OutParameters)
+            {
+                if (string.Equals(parameter.Name, parameterName, StringComparison.OrdinalIgnoreCase)) return parameter.Value;
+            }
+            return null;
         }
 
         private static InvalidOperationException CreateDiagnosticException(string stage, IReadOnlyCollection<Candidate> candidates, Exception exception, IReadOnlyCollection<string>? attemptFailures = null)
@@ -226,15 +226,12 @@ namespace HonorControl.Services
                 text.Append(current.GetType().Name);
                 text.Append("[HResult=0x");
                 text.Append(current.HResult.ToString("X8"));
-                if (current is ManagementException managementException)
+                if (current is CimException cimException)
                 {
-                    text.Append(", ErrorCode=");
-                    text.Append(managementException.ErrorCode);
-                }
-                if (current is COMException comException)
-                {
-                    text.Append(", COMHResult=0x");
-                    text.Append(comException.HResult.ToString("X8"));
+                    text.Append(", NativeErrorCode=");
+                    text.Append(cimException.NativeErrorCode);
+                    text.Append(", StatusCode=");
+                    text.Append(cimException.StatusCode);
                 }
                 text.Append("]: ");
                 text.Append(current.Message);
@@ -242,14 +239,14 @@ namespace HonorControl.Services
             return text.ToString();
         }
 
-        private static void ValidateTransportResult(ManagementBaseObject result)
+        private static void ValidateTransportResult(CimMethodResult result)
         {
-            object? returnValue = result["ReturnValue"];
+            object? returnValue = result.ReturnValue?.Value;
             if (returnValue == null) throw new InvalidOperationException("WMI 调用没有返回 ReturnValue。");
             bool success = returnValue is bool boolean ? boolean : Convert.ToUInt64(returnValue) == 0;
             if (!success) throw new InvalidOperationException("WMI 传输层返回失败：" + returnValue + "。");
 
-            object? reserved = result["u32Resrved"];
+            object? reserved = GetOutParameterValue(result, "u32Resrved");
             if (reserved != null && Convert.ToUInt32(reserved) != 0)
                 throw new InvalidOperationException("WMI 返回非零保留状态：" + reserved + "。");
         }
@@ -261,7 +258,7 @@ namespace HonorControl.Services
 
         private static bool IsTransportError(Exception exception)
         {
-            return exception is ManagementException || exception is COMException || exception is UnauthorizedAccessException;
+            return exception is CimException || exception is UnauthorizedAccessException;
         }
 
         private static byte[] ConvertToByteArray(object? value)
@@ -293,14 +290,14 @@ namespace HonorControl.Services
 
         private sealed class Candidate : IDisposable
         {
-            public Candidate(ManagementObject @object, string? instanceName, bool isActive)
+            public Candidate(CimInstance @object, string? instanceName, bool isActive)
             {
                 Object = @object;
                 InstanceName = string.IsNullOrWhiteSpace(instanceName) ? "<未命名实例>" : instanceName;
                 IsActive = isActive;
             }
 
-            public ManagementObject Object { get; private set; }
+            public CimInstance Object { get; private set; }
             public string InstanceName { get; private set; }
             public bool IsActive { get; private set; }
             public bool IsEligible => IsActive && InstanceName != "<未命名实例>";

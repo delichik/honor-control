@@ -18,7 +18,7 @@ src/HonorControl/
 
 ## 打开和构建
 
-使用 Visual Studio 2022，并安装“.NET 桌面开发”工作负载、.NET 8 SDK 和 Windows App SDK 支持，打开 `HonorControl.sln` 后构建 Release/x64。项目目标为 `net8.0-windows10.0.22000.0`（Windows 11），首次构建会还原 `Microsoft.WindowsAppSDK` 与 `System.Management` 包，生成 `HonorControl.exe`。
+使用 Visual Studio 2022，并安装“.NET 桌面开发”工作负载、.NET 8 SDK 和 Windows App SDK 支持，打开 `HonorControl.sln` 后构建 Release/x64。项目目标为 `net8.0-windows10.0.22000.0`（Windows 11），首次构建会还原 `Microsoft.WindowsAppSDK` 与 `Microsoft.Management.Infrastructure` 包，生成 `HonorControl.exe`。
 
 仓库通过 `global.json` 固定使用 .NET SDK `8.0.408`，避免被机器上更高版本的 SDK 自动选中；Windows App SDK 1.6 当前应使用该 .NET 8 SDK 构建。
 
@@ -50,7 +50,7 @@ src/HonorControl/
 - 使用 WinUI 3 Fluent 控件、Mica 系统材质、原生 InfoBar、ContentDialog、RadioButtons、Expander 和自动可访问的键盘交互。
 - 支持浅色和深色主题；主题切换使用 WinUI 的 `RequestedTheme`，不手写模拟 Windows 控件。
 
-所有请求固定为 64 字节，调用 `root\\wmi:OemWMIMethod` 的 `ACPI\PNP0C14\HWMI_0` 实例及 `OemWMIfun` 方法。项目不复制、加载或分发荣耀 DLL。
+所有请求固定为 64 字节，通过 Windows CIM/MI 调用 `root\\wmi:OemWMIMethod` 的 `ACPI\PNP0C14\HWMI_0` 实例及 `OemWMIfun` 方法；这与研究阶段成功的 `Get-CimInstance` / `Invoke-CimMethod` 路径一致。项目不复制、加载或分发荣耀 DLL。
 
 ## 已知风险与验证边界
 

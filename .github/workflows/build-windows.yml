@@ -50,7 +50,10 @@ jobs:
           $requiredFiles = @(
             '${{ github.workspace }}\artifacts\HonorControl\HonorControl.exe',
             '${{ github.workspace }}\artifacts\HonorControl\HonorControl.pri',
-            '${{ github.workspace }}\artifacts\HonorControl\Microsoft.UI.Xaml.dll'
+            '${{ github.workspace }}\artifacts\HonorControl\Microsoft.UI.Xaml.dll',
+            '${{ github.workspace }}\artifacts\HonorControl\Microsoft.Management.Infrastructure.dll',
+            '${{ github.workspace }}\artifacts\HonorControl\Microsoft.Management.Infrastructure.Native.dll',
+            '${{ github.workspace }}\artifacts\HonorControl\microsoft.management.infrastructure.native.unmanaged.dll'
           )
           $missingFiles = $requiredFiles | Where-Object { -not (Test-Path -LiteralPath $_ -PathType Leaf) }
           if ($missingFiles.Count -gt 0) {
