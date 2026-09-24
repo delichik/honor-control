@@ -57,39 +57,57 @@ public sealed class TrayIconController : IDisposable
         this.dispatcherQueue = dispatcherQueue;
         subclassProcedure = WindowSubclass;
         taskbarCreatedMessage = RegisterWindowMessageW("TaskbarCreated");
+        AppDiagnostics.Write($"[tray] Begin. Hwnd=0x{windowHandle.ToInt64():X}; TaskbarCreated=0x{taskbarCreatedMessage:X}.");
 
         if (!AllowElevatedWindowMessage(CallbackMessage))
         {
-            LastError = "无法接收系统托盘消息：" + new Win32Exception(Marshal.GetLastWin32Error()).Message;
+            int error = Marshal.GetLastWin32Error();
+            LastError = "无法接收系统托盘消息：" + new Win32Exception(error).Message;
+            AppDiagnostics.Write($"[tray] ChangeWindowMessageFilterEx callback failed. Error={error}; {LastError}");
             return;
         }
+        AppDiagnostics.Write("[tray] Callback message filter allowed.");
         if (taskbarCreatedMessage != 0 && !AllowElevatedWindowMessage(taskbarCreatedMessage))
         {
-            LastError = "任务栏重启后可能无法自动恢复托盘图标：" + new Win32Exception(Marshal.GetLastWin32Error()).Message;
+            int error = Marshal.GetLastWin32Error();
+            LastError = "任务栏重启后可能无法自动恢复托盘图标：" + new Win32Exception(error).Message;
+            AppDiagnostics.Write($"[tray] ChangeWindowMessageFilterEx TaskbarCreated failed. Error={error}; {LastError}");
+        }
+        else
+        {
+            AppDiagnostics.Write("[tray] TaskbarCreated message filter allowed.");
         }
 
         subclassAttached = SetWindowSubclass(windowHandle, subclassProcedure, new UIntPtr(1), IntPtr.Zero);
         if (!subclassAttached)
         {
-            LastError = new Win32Exception(Marshal.GetLastWin32Error()).Message;
+            int error = Marshal.GetLastWin32Error();
+            LastError = new Win32Exception(error).Message;
+            AppDiagnostics.Write($"[tray] SetWindowSubclass failed. Error={error}; {LastError}");
             return;
         }
+        AppDiagnostics.Write("[tray] Window subclass attached.");
 
         iconHandle = LoadImageW(IntPtr.Zero, iconPath, ImageIcon, 0, 0, LrLoadFromFile | LrDefaultSize);
         ownsIconHandle = iconHandle != IntPtr.Zero;
+        AppDiagnostics.Write($"[tray] LoadImage result=0x{iconHandle.ToInt64():X}; Path={iconPath}");
         if (iconHandle == IntPtr.Zero)
         {
             iconHandle = LoadIconW(IntPtr.Zero, new IntPtr(32512));
+            AppDiagnostics.Write($"[tray] Default icon result=0x{iconHandle.ToInt64():X}.");
         }
 
         if (iconHandle == IntPtr.Zero || !AddIcon())
         {
-            LastError = new Win32Exception(Marshal.GetLastWin32Error()).Message;
+            int error = Marshal.GetLastWin32Error();
+            LastError = new Win32Exception(error).Message;
+            AppDiagnostics.Write($"[tray] Initialization failed. Error={error}; {LastError}");
             Dispose();
             return;
         }
 
         IsAvailable = true;
+        AppDiagnostics.Write("[tray] Initialization completed.");
     }
 
     public event Action? OpenRequested;
@@ -114,6 +132,7 @@ public sealed class TrayIconController : IDisposable
     {
         if (disposed) return;
         disposed = true;
+        AppDiagnostics.Write($"[tray] Disposing. Available={IsAvailable}; SubclassAttached={subclassAttached}.");
 
         if (IsAvailable)
         {
@@ -142,11 +161,23 @@ public sealed class TrayIconController : IDisposable
         data.CallbackMessage = CallbackMessage;
         data.IconHandle = iconHandle;
         data.Tip = "Honor Control";
-        if (!ShellNotifyIconW(NimAdd, ref data)) return false;
+        if (!ShellNotifyIconW(NimAdd, ref data))
+        {
+            int error = Marshal.GetLastWin32Error();
+            AppDiagnostics.Write($"[tray] NIM_ADD failed. Error={error}; {new Win32Exception(error).Message}");
+            return false;
+        }
+        AppDiagnostics.Write("[tray] NIM_ADD succeeded.");
 
         data.TimeoutOrVersion = NotifyIconVersion4;
-        if (ShellNotifyIconW(NimSetVersion, ref data)) return true;
+        if (ShellNotifyIconW(NimSetVersion, ref data))
+        {
+            AppDiagnostics.Write("[tray] NIM_SETVERSION succeeded.");
+            return true;
+        }
 
+        int versionError = Marshal.GetLastWin32Error();
+        AppDiagnostics.Write($"[tray] NIM_SETVERSION failed. Error={versionError}; {new Win32Exception(versionError).Message}");
         ShellNotifyIconW(NimDelete, ref data);
         return false;
     }
@@ -182,6 +213,7 @@ public sealed class TrayIconController : IDisposable
         }
         if (message == WmNcDestroy)
         {
+            AppDiagnostics.Write("[tray] WM_NCDESTROY received.");
             IsAvailable = false;
             subclassAttached = false;
         }

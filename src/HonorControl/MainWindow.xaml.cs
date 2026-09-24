@@ -24,7 +24,7 @@ public sealed partial class MainWindow : Window
     private bool themeSelectorIsLoading;
     private bool settingsAreLoading;
     private bool controlSelectionIsSyncing;
-    private bool closeToTray = true;
+    private bool closeToTray;
     private bool hasShownTrayHint;
     private bool explicitExit;
 
@@ -39,13 +39,14 @@ public sealed partial class MainWindow : Window
         SystemBackdrop = new MicaBackdrop();
 
         IntPtr windowHandle = WindowNative.GetWindowHandle(this);
+        AppDiagnostics.Write($"[window] Native window created. Hwnd=0x{windowHandle.ToInt64():X}.");
         appWindow = ConfigureWindow(windowHandle);
         string iconPath = Path.Combine(AppContext.BaseDirectory, "Assets", "HonorControl.ico");
         trayIcon = new TrayIconController(windowHandle, DispatcherQueue, iconPath);
         trayIcon.OpenRequested += ShowFromTray;
         trayIcon.ExitRequested += ExitApplication;
         appWindow.Closing += AppWindow_Closing;
-        Closed += (_, _) => trayIcon.Dispose();
+        Closed += MainWindow_Closed;
 
         viewModel = new MainViewModel();
         AppRoot.DataContext = viewModel;
@@ -71,12 +72,14 @@ public sealed partial class MainWindow : Window
 
     private async void AppRoot_Loaded(object sender, RoutedEventArgs e)
     {
+        AppDiagnostics.Write("[window] Root loaded.");
         LoadPreferences();
         SyncControlsFromViewModel();
         UpdateAlertVisibility();
         await viewModel.RefreshAsync();
         SyncControlsFromViewModel();
         UpdateAlertVisibility();
+        AppDiagnostics.Write("[window] Initial device refresh completed.");
     }
 
     private void ViewModel_PropertyChanged(object? sender, PropertyChangedEventArgs e)
@@ -273,10 +276,26 @@ public sealed partial class MainWindow : Window
 
     private void AppWindow_Closing(AppWindow sender, AppWindowClosingEventArgs args)
     {
-        if (explicitExit || trayIcon.SystemEnding || !closeToTray || !trayIcon.IsAvailable) return;
+        AppDiagnostics.Write($"[window] Closing requested. ExplicitExit={explicitExit}; SystemEnding={trayIcon.SystemEnding}; CloseToTray={closeToTray}; TrayAvailable={trayIcon.IsAvailable}.");
+        if (explicitExit || trayIcon.SystemEnding || !closeToTray || !trayIcon.IsAvailable)
+        {
+            explicitExit = true;
+            return;
+        }
 
         args.Cancel = true;
-        sender.Hide();
+        if (!DispatcherQueue.TryEnqueue(() =>
+        {
+            if (explicitExit) return;
+            sender.Hide();
+            AppDiagnostics.Write("[window] Hidden to system tray.");
+        }))
+        {
+            args.Cancel = false;
+            explicitExit = true;
+            AppDiagnostics.Write("[window] Failed to queue tray hide; allowing the application to close.");
+            return;
+        }
         if (!hasShownTrayHint)
         {
             trayIcon.ShowNotification("Honor Control 仍在运行", "双击托盘图标可重新打开，右键菜单可以完全退出。");
@@ -287,6 +306,7 @@ public sealed partial class MainWindow : Window
 
     private void ShowFromTray()
     {
+        AppDiagnostics.Write("[window] Restore requested from system tray.");
         if (appWindow.Presenter is OverlappedPresenter presenter && presenter.State == OverlappedPresenterState.Minimized)
         {
             presenter.Restore();
@@ -299,8 +319,17 @@ public sealed partial class MainWindow : Window
     {
         if (explicitExit) return;
         explicitExit = true;
+        AppDiagnostics.Write("[window] Explicit exit requested from system tray.");
         trayIcon.Dispose();
-        appWindow.Destroy();
+        Application.Current.Exit();
+    }
+
+    private void MainWindow_Closed(object sender, WindowEventArgs args)
+    {
+        AppDiagnostics.Write("[window] Native window closed; exiting application.");
+        explicitExit = true;
+        trayIcon.Dispose();
+        Application.Current.Exit();
     }
 
     private void ThemeSelector_SelectionChanged(object sender, SelectionChangedEventArgs e)
