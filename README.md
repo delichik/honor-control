@@ -20,7 +20,7 @@ src/HonorControl/
 
 使用 Visual Studio 2022，并安装“.NET 桌面开发”工作负载、.NET 8 SDK 和 Windows App SDK 支持，打开 `HonorControl.sln` 后构建 Release/x64。项目目标为 `net8.0-windows10.0.22000.0`（Windows 11），首次构建会还原 `Microsoft.WindowsAppSDK` 与 `Microsoft.Management.Infrastructure` 包，生成 `HonorControl.exe`。
 
-仓库通过 `global.json` 固定使用 .NET SDK `8.0.408`，避免被机器上更高版本的 SDK 自动选中；Windows App SDK 1.6 当前应使用该 .NET 8 SDK 构建。
+仓库通过 `global.json` 固定使用 .NET SDK `8.0.408`，避免被机器上更高版本的 SDK 自动选中；项目使用 Windows App SDK `2.4.0`，并以 2.x 运行时包族作为轻量版的兼容基线。
 
 当前工作站没有本地 .NET SDK，仓库以 GitHub Actions 的 Windows 构建结果为准。编译后的首次运行会出现 UAC 提示，这是 BIOS WMI 接口的必要权限。
 
@@ -28,10 +28,10 @@ src/HonorControl/
 
 仓库包含 `.github/workflows/build-windows.yml`。推送 `src/HonorControl/`、解决方案或该工作流的改动后会自动构建；也可在 GitHub 的 **Actions → Build Honor Control → Run workflow** 手动触发。
 
-工作流在 GitHub 的 Windows runner 上还原 .NET 8 和 Windows App SDK 依赖，并使用 Visual Studio 的 `MSBuild.exe`（含 Windows App SDK 生成 PRI 所需的 Appx 打包任务）同时发布两个 `win-x64` artifact：
+工作流在同一个 GitHub Windows runner 上只还原一次 .NET 8 和 Windows App SDK 依赖，再使用 Visual Studio 的 `MSBuild.exe`（含 Windows App SDK 生成 PRI 所需的 Appx 打包任务）依次发布两个 `win-x64` artifact；它不再通过矩阵启动两套完整构建，并会检查两份 `runtimeconfig` 的部署类型以及轻量版的 Windows App Runtime bootstrap 文件：
 
 - `HonorControl-win-x64`：便携版，包含 .NET 8 与 Windows App SDK 运行时；下载并解压后可直接运行。
-- `HonorControl-win-x64-lightweight`：轻量版，不携带上述两套运行时；目标电脑必须预先安装 x64 的 **.NET 8 Desktop Runtime** 和 **Windows App SDK 1.6 Runtime**。
+- `HonorControl-win-x64-lightweight`：轻量版，不携带上述两套运行时；目标电脑必须预先安装 x64 的 **.NET 8 Desktop Runtime**，以及满足应用依赖版本的 **`Microsoft.WindowsAppRuntime.2` 运行时包（基线为 2.4.0）**。
 
 无论选择哪个版本，都应完整解压 artifact，并保留 `HonorControl.exe` 同目录的 DLL、PRI 和原生运行时文件。
 
