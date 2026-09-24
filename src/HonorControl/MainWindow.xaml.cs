@@ -108,9 +108,7 @@ public sealed partial class MainWindow : Window
 
     private async void Refresh_Click(object sender, RoutedEventArgs e) => await viewModel.RefreshAsync();
 
-    private async void ApplyCustomCharge_Click(object sender, RoutedEventArgs e) => await viewModel.SetCustomChargeAsync();
-
-    private async void ApplySelectedChargePreset_Click(object sender, RoutedEventArgs e) => await viewModel.ApplySelectedChargePresetAsync();
+    private async void ApplySelectedChargeMode_Click(object sender, RoutedEventArgs e) => await viewModel.ApplySelectedChargeModeAsync();
 
     private void ChargeModeOption_Checked(object sender, RoutedEventArgs e)
     {
@@ -142,6 +140,9 @@ public sealed partial class MainWindow : Window
         {
             ChargeProtectOption.IsChecked = viewModel.SelectedChargePresetIndex == 0;
             ChargeFullOption.IsChecked = viewModel.SelectedChargePresetIndex == 1;
+            bool customChargeSelected = viewModel.SelectedChargePresetIndex == -1;
+            ChargeCustomOption.IsChecked = customChargeSelected;
+            CustomChargeEditor.Visibility = customChargeSelected ? Visibility.Visible : Visibility.Collapsed;
             SmartPerformanceOption.IsChecked = viewModel.SelectedPerformanceMode == 1;
             HighPerformanceOption.IsChecked = viewModel.SelectedPerformanceMode == 2;
             CustomChargeStartBox.Value = ParseNumberBoxValue(viewModel.CustomChargeStart);
