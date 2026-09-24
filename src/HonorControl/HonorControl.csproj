@@ -5,6 +5,7 @@
     <TargetPlatformMinVersion>10.0.22000.0</TargetPlatformMinVersion>
     <RootNamespace>HonorControl</RootNamespace>
     <ApplicationManifest>app.manifest</ApplicationManifest>
+    <ApplicationIcon>Assets\HonorControl.ico</ApplicationIcon>
     <UseWinUI>true</UseWinUI>
     <WindowsPackageType>None</WindowsPackageType>
     <WindowsAppSDKSelfContained>true</WindowsAppSDKSelfContained>
@@ -18,6 +19,11 @@
   <ItemGroup>
     <PackageReference Include="Microsoft.WindowsAppSDK" Version="2.4.0" />
     <PackageReference Include="Microsoft.Management.Infrastructure" Version="3.0.0" />
+  </ItemGroup>
+  <ItemGroup>
+    <None Update="Assets\HonorControl.ico"
+          CopyToOutputDirectory="PreserveNewest"
+          CopyToPublishDirectory="PreserveNewest" />
   </ItemGroup>
   <Target Name="HonorControlAddProjectPriToPublish"
           BeforeTargets="ComputeResolvedFilesToPublishList"

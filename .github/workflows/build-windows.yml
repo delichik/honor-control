@@ -77,6 +77,7 @@ jobs:
             $requiredNames = @(
               'HonorControl.exe',
               'HonorControl.pri',
+              'Assets\HonorControl.ico',
               'Microsoft.Management.Infrastructure.dll',
               'Microsoft.Management.Infrastructure.Native.dll',
               'microsoft.management.infrastructure.native.unmanaged.dll'

@@ -19,7 +19,7 @@ public sealed class MainViewModel : ViewModelBase
     private string pendingChangeTitle = "尚未选择性能模式";
     private string pendingChangeDetail = "完成设备检查后可选择并应用模式。";
     private string operationTitle = "准备就绪";
-    private string operationStatus = "正在验证荣耀硬件接口和当前状态。";
+    private string operationStatus = string.Empty;
     private string diagnosticDetails = "尚未获得诊断信息。";
     private string customChargeStart = "40";
     private string customChargeEnd = "70";
@@ -36,6 +36,7 @@ public sealed class MainViewModel : ViewModelBase
     private int? batteryPercent;
     private int? adapterOutput;
     private bool supportsHighPerformance;
+    private bool hasOperationStatus;
     private int selectedChargePreset;
     private int selectedPerformanceMode = 1;
 
@@ -57,6 +58,7 @@ public sealed class MainViewModel : ViewModelBase
     public InfoBarSeverity PerformanceRequirementSeverity { get => performanceRequirementSeverity; private set { performanceRequirementSeverity = value; OnPropertyChanged(); } }
     public InfoBarSeverity OperationSeverity { get => operationSeverity; private set { operationSeverity = value; OnPropertyChanged(); } }
     public InfoBarSeverity CustomChargeValidationSeverity { get => customChargeValidationSeverity; private set { customChargeValidationSeverity = value; OnPropertyChanged(); } }
+    public bool HasOperationStatus { get => hasOperationStatus; private set { hasOperationStatus = value; OnPropertyChanged(); } }
 
     public string CustomChargeStart
     {
@@ -96,17 +98,18 @@ public sealed class MainViewModel : ViewModelBase
     }
     public string SelectedChargePresetLabel => selectedChargePreset == 1 ? "电池保护 · 40%–70%" : selectedChargePreset == 2 ? "充满模式 · 0%–100%" : "尚未选择预设";
     public string SelectedChargePresetDetail => selectedChargePreset == 1 ? "适合长期接通电源使用，减少电池长期满电停留。" : selectedChargePreset == 2 ? "允许充至 100%，适合即将移动使用的场景。" : "选择一个预设后再应用；当前 BIOS 配置不会自动改变。";
+    public int SelectedPerformanceMode => selectedPerformanceMode;
     public string SelectedPerformanceModeLabel => selectedPerformanceMode == 2 ? "高能模式" : "智能模式";
 
     public async Task RefreshAsync()
     {
         ConnectionTitle = "正在检查设备接口";
-        DeviceSummary = "正在执行只读 HWMI 探测。";
+        DeviceSummary = "正在连接硬件控制接口。";
         ConnectionSeverity = InfoBarSeverity.Informational;
         ChargeStatus = "正在读取充电阈值…";
-        ChargeAvailabilityText = "正在探测 0x1103 只读命令。";
-        PerformanceRequirementText = "正在探测性能模式只读命令。";
-        BeginOperation("正在检查设备", "正在读取电源状态、充电策略和性能接口。", InfoBarSeverity.Informational);
+        ChargeAvailabilityText = "正在读取设备状态。";
+        PerformanceRequirementText = "正在检查切换条件。";
+        BeginOperation("正在刷新", "正在读取电源、充电和性能状态。", InfoBarSeverity.Informational);
         try
         {
             SystemPowerSnapshot power = await Task.Run(systemPower.GetSnapshot);
@@ -131,13 +134,13 @@ public sealed class MainViewModel : ViewModelBase
                 CustomChargeStart = threshold.Start.ToString();
                 CustomChargeEnd = threshold.End.ToString();
                 SelectChargePreset(PresetFromThreshold(threshold));
-                ChargeAvailabilityText = "荣耀充电阈值接口可用。写入后会自动回读验证。";
+                ChargeAvailabilityText = "可用 · 更改后会自动验证实际值";
                 ChargeAvailabilitySeverity = InfoBarSeverity.Success;
             }
             else
             {
                 ChargeStatus = "无法读取充电阈值。";
-                ChargeAvailabilityText = "充电阈值接口未通过只读探测；请在诊断页查看失败阶段和 HRESULT。";
+                ChargeAvailabilityText = "无法读取充电策略，可在设置中查看诊断。";
                 ChargeAvailabilitySeverity = InfoBarSeverity.Error;
             }
 
@@ -145,7 +148,7 @@ public sealed class MainViewModel : ViewModelBase
             UpdateDeviceSummary(chargeError, performanceError);
             DiagnosticDetails = BuildDiagnostics(power, threshold, performance, chargeError, performanceError);
             FinishOperation(chargeSupported || performanceSupported ? "设备检查完成" : "无法连接设备接口",
-                chargeSupported || performanceSupported ? "已读取可用接口。你可以根据当前状态选择操作。" : "只读探测未获得有效响应，详细失败阶段和 HRESULT 已写入诊断页。",
+                chargeSupported || performanceSupported ? "状态已更新。" : "硬件控制接口没有响应，可在设置中查看诊断。",
                 chargeSupported || performanceSupported ? InfoBarSeverity.Success : InfoBarSeverity.Error);
         }
         catch (Exception exception)
@@ -157,12 +160,12 @@ public sealed class MainViewModel : ViewModelBase
             ConnectionTitle = "设备检查失败";
             ConnectionSeverity = InfoBarSeverity.Error;
             DeviceSummary = "无法读取系统电源或荣耀接口状态。";
-            ChargeAvailabilityText = "充电接口检查被系统级错误中断；请查看诊断页。";
+            ChargeAvailabilityText = "无法读取充电策略，可在设置中查看诊断。";
             ChargeAvailabilitySeverity = InfoBarSeverity.Error;
-            PerformanceRequirementText = "性能接口检查被系统级错误中断；请查看诊断页。";
+            PerformanceRequirementText = "无法读取性能控制状态，可在设置中查看诊断。";
             PerformanceRequirementSeverity = InfoBarSeverity.Error;
             DiagnosticDetails = BuildOperationFailureDiagnostics("设备检查", exception);
-            FinishOperation("设备检查失败", "无法完成只读探测，详细错误已写入诊断页。", InfoBarSeverity.Error);
+            FinishOperation("刷新失败", "无法读取设备状态，可在设置中查看诊断。", InfoBarSeverity.Error);
         }
         finally
         {
@@ -214,16 +217,16 @@ public sealed class MainViewModel : ViewModelBase
                 return;
             }
 
-            OperationStatus = "2/2 正在向 BIOS 下发实验性模式命令。";
+            OperationStatus = "正在向设备发送模式请求。";
             PerformanceStatus status = await Task.Run(() => client.SetPerformanceMode(selectedPerformanceMode));
             DiagnosticDetails = "目标接口：root\\wmi / OemWMIMethod / ACPI\\PNP0C14\\HWMI_0\n性能原始返回：" + status.ModeQuery + "；支持信息：" + status.SupportQuery + "；适配器原始返回：" + status.AdapterQuery;
-            FinishOperation("性能模式命令已被 BIOS 接收", "SET 状态为成功，且已刷新原始查询结果；当前模式字段语义尚未实测，不能据此确认完整性能策略或风扇/GPU 联动。", InfoBarSeverity.Warning);
+            FinishOperation("设备已接收模式请求", "当前模式无法可靠回读，请以实际性能表现为准。", InfoBarSeverity.Warning);
             AddActivity("性能模式命令返回成功（仍需实际负载验证）：“" + label + "”。", false);
         }
         catch (Exception exception)
         {
             DiagnosticDetails = BuildOperationFailureDiagnostics("性能模式设置", exception);
-            FinishOperation("性能模式设置失败", "接口拒绝或未完成写入，详细错误已写入诊断页。", InfoBarSeverity.Error);
+            FinishOperation("性能模式设置失败", "设备没有接受请求，可在设置中查看诊断。", InfoBarSeverity.Error);
             AddActivity("性能模式写入失败；请查看诊断页。", true);
         }
         finally { IsBusy = false; }
@@ -233,6 +236,8 @@ public sealed class MainViewModel : ViewModelBase
     {
         if (mode is < 1 or > 2 || !CanConfigurePerformance || mode == 2 && !supportsHighPerformance) return;
         selectedPerformanceMode = mode;
+        OnPropertyChanged(nameof(SelectedPerformanceMode));
+        OnPropertyChanged(nameof(SelectedPerformanceModeLabel));
         PendingChangeTitle = "待应用：" + SelectedPerformanceModeLabel;
         PendingChangeDetail = mode == 2 ? "切换到高能策略；功耗、温度和风扇噪声会提高。" : "切换到均衡策略，适合日常办公和轻负载。";
     }
@@ -252,17 +257,17 @@ public sealed class MainViewModel : ViewModelBase
             SelectChargePreset(PresetFromThreshold(threshold));
             if (threshold.Start != start || threshold.End != end)
             {
-                FinishOperation("充电策略未达到请求值", "BIOS 返回成功，但回读为 " + threshold.Start + "%–" + threshold.End + "%；未采用 Linux 机型专用 quirk，避免对未识别机型盲写。", InfoBarSeverity.Warning);
+                FinishOperation("设备采用了不同的充电值", "请求 " + start + "%–" + end + "%；实际为 " + threshold.Start + "%–" + threshold.End + "% 。", InfoBarSeverity.Warning);
                 AddActivity("充电策略回读不符：请求 " + start + "%–" + end + "%；实际 " + threshold.Start + "%–" + threshold.End + "% 。", true);
                 return;
             }
-            FinishOperation("充电策略已更新", "2/2 已收到 BIOS 成功状态并回读验证。", InfoBarSeverity.Success);
+            FinishOperation("充电策略已更新", "已从设备回读并确认 " + threshold.Start + "%–" + threshold.End + "% 。", InfoBarSeverity.Success);
             AddActivity(string.Format(successFormat, threshold.Start, threshold.End), false);
         }
         catch (Exception exception)
         {
             DiagnosticDetails = BuildOperationFailureDiagnostics("充电策略设置", exception);
-            FinishOperation("充电策略设置失败", "接口拒绝或未完成写入，详细错误已写入诊断页。", InfoBarSeverity.Error);
+            FinishOperation("充电策略设置失败", "设备没有接受请求，可在设置中查看诊断。", InfoBarSeverity.Error);
             AddActivity("充电策略写入失败；请查看诊断页。", true);
         }
         finally { IsBusy = false; }
@@ -280,28 +285,28 @@ public sealed class MainViewModel : ViewModelBase
     {
         if (!performanceSupported)
         {
-            PerformanceRequirementText = "此设备未返回可用的性能模式接口。";
+            PerformanceRequirementText = "此设备暂时无法使用性能模式。";
             PerformanceRequirementSeverity = InfoBarSeverity.Error;
             PendingChangeTitle = "性能模式不可用";
-            PendingChangeDetail = "请在诊断详情中查看接口错误。";
+            PendingChangeDetail = "可在设置中查看诊断信息。";
         }
         else if (isOnAcPower != true)
         {
-            PerformanceRequirementText = isOnAcPower == false ? "请接通 AC 电源后再切换性能模式，避免 BIOS 自动回退。" : "无法确认 AC 供电状态；为避免自动回退，暂不允许切换性能模式。";
+            PerformanceRequirementText = isOnAcPower == false ? "请接通电源后再切换模式。" : "无法确认供电状态，暂时不能切换。";
             PerformanceRequirementSeverity = InfoBarSeverity.Warning;
             PendingChangeTitle = "等待接通 AC 电源";
             PendingChangeDetail = "检查电源连接后刷新状态。";
         }
         else if (!batteryPercent.HasValue || batteryPercent.Value < 20)
         {
-            PerformanceRequirementText = batteryPercent.HasValue ? "当前电量为 " + batteryPercent.Value + "%；性能模式要求电量至少 20%。" : "无法读取当前电量；为避免低电量切换，暂不允许写入性能模式。";
+            PerformanceRequirementText = batteryPercent.HasValue ? "当前电量 " + batteryPercent.Value + "% · 至少需要 20%" : "无法读取电量，暂时不能切换。";
             PerformanceRequirementSeverity = InfoBarSeverity.Warning;
             PendingChangeTitle = "等待电池状态满足条件";
             PendingChangeDetail = "请确保电量至少为 20% 后刷新状态。";
         }
         else if (!adapterOutput.HasValue || adapterOutput.Value <= 0)
         {
-            PerformanceRequirementText = "BIOS 未报告有效的适配器输出；为避免在不满足供电条件时写入，已禁用性能模式。";
+            PerformanceRequirementText = "无法确认电源适配器状态，暂时不能切换。";
             PerformanceRequirementSeverity = InfoBarSeverity.Warning;
             PendingChangeTitle = "等待适配器输出确认";
             PendingChangeDetail = "检查适配器后刷新状态。";
@@ -309,14 +314,16 @@ public sealed class MainViewModel : ViewModelBase
         else if (!supportsHighPerformance && selectedPerformanceMode == 2)
         {
             selectedPerformanceMode = 1;
-            PerformanceRequirementText = "此设备未报告 HUNTER 高能模式支持；高能模式已禁用，智能模式仍属于实验性 BIOS 命令。";
+            OnPropertyChanged(nameof(SelectedPerformanceMode));
+            OnPropertyChanged(nameof(SelectedPerformanceModeLabel));
+            PerformanceRequirementText = "此设备不支持高能模式，可使用智能模式。";
             PerformanceRequirementSeverity = InfoBarSeverity.Warning;
             PendingChangeTitle = "待应用：智能模式（实验性）";
             PendingChangeDetail = "模式语义及电脑管家联动尚未实测。";
         }
         else
         {
-            PerformanceRequirementText = supportsHighPerformance ? "AC、电量和适配器输出已满足预检；模式命令仍为实验性，仅 BIOS 载荷已逆向。" : "AC、电量和适配器输出已满足预检；设备未报告高能支持，仅可尝试实验性智能模式。";
+            PerformanceRequirementText = supportsHighPerformance ? "已满足切换条件" : "可使用智能模式；此设备不支持高能模式。";
             PerformanceRequirementSeverity = InfoBarSeverity.Warning;
             PendingChangeTitle = "待应用：" + SelectedPerformanceModeLabel + "（实验性）";
             PendingChangeDetail = "只下发 BIOS 命令，不承诺电脑管家电源计划、风扇或 GPU 联动。";
@@ -335,7 +342,7 @@ public sealed class MainViewModel : ViewModelBase
         {
             ConnectionTitle = "荣耀硬件接口不可用";
             ConnectionSeverity = InfoBarSeverity.Error;
-            DeviceSummary = "只读探测没有获得响应。请在诊断页查看失败阶段、候选实例和 HRESULT。";
+            DeviceSummary = "无法连接硬件控制接口，可在设置中查看诊断信息。";
         }
     }
 
@@ -433,6 +440,7 @@ public sealed class MainViewModel : ViewModelBase
     private void BeginOperation(string title, string detail, InfoBarSeverity severity)
     {
         IsBusy = true;
+        HasOperationStatus = true;
         OperationTitle = title;
         OperationStatus = detail;
         OperationSeverity = severity;
@@ -440,6 +448,7 @@ public sealed class MainViewModel : ViewModelBase
 
     private void FinishOperation(string title, string detail, InfoBarSeverity severity)
     {
+        HasOperationStatus = true;
         OperationTitle = title;
         OperationStatus = detail;
         OperationSeverity = severity;

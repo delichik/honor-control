@@ -12,6 +12,8 @@ src/HonorControl/
   ViewModels/MainViewModel.cs      UI 状态、前置条件和操作编排
   Services/OemWmiClient.cs         OemWMIMethod WMI 协议实现
   Services/SystemPowerService.cs   Windows AC/电量状态读取
+  Services/TrayIconController.cs   原生 Win32 托盘与窗口生命周期
+  Assets/HonorControl.ico          应用和托盘多尺寸图标
   Models/                          充电阈值、性能模式模型
   app.manifest                     强制 UAC 管理员权限
 ```
@@ -48,12 +50,14 @@ src/HonorControl/
 
 ## 交互与视觉设计
 
-- 使用概览、智能充电、性能模式、诊断和设置五个独立导航内容区，避免把所有控制堆在同一页面。
-- 性能模式先选择，再在“待应用变更”区确认，避免误触直接写入 BIOS。
-- 每次智能充电写入都展示下发、BIOS 响应与阈值回读验证；性能写入只报告“BIOS 接收命令 + 原始查询刷新”，不把未验证模式语义伪装为成功，并保留最近 8 条会话操作记录。
-- 原始 WMI 返回和接口错误收纳于“诊断详情”，不干扰日常操作。
-- 使用 WinUI 3 Fluent 控件、Mica 系统材质、原生 InfoBar、ContentDialog、RadioButtons、Expander 和自动可访问的键盘交互。
-- 设置页支持跟随系统、浅色和深色主题；偏好保存在当前用户的 `%LocalAppData%\HonorControl\settings.json`。
+- 主导航只保留智能充电和性能模式两个高频页面；外观、后台行为和故障排查统一收纳到设置页。
+- 页面共享相同的内容宽度、间距、卡片、选择项和操作按钮规格，并使用 Segoe Fluent 图标建立清晰层级。
+- 日常页面只显示当前状态、可操作原因和验证结果；命令号、候选实例、HRESULT 与原始返回仅在“设置 → 故障排查”中显示。
+- 智能充电写入后回读实际阈值；性能模式保留实验性提示和二次确认，不把无法回读的模式请求描述成已验证切换。
+- 设置页支持跟随系统、浅色和深色主题，以及“关闭窗口时驻留托盘”；偏好保存在当前用户的 `%LocalAppData%\HonorControl\settings.json`。
+- 系统托盘使用 Windows 原生 `Shell_NotifyIcon`：支持重新打开、显式退出、首次驻留提示和 Explorer 重启后的图标恢复，不依赖第三方托盘组件。
+
+当前程序仍采用单进程管理员权限模型。启用“关闭窗口时驻留托盘”后，管理员进程会继续在后台运行，必须通过托盘菜单“退出”才能完全结束；长期方案应考虑把普通权限界面与按需提权的硬件控制进程拆分。
 
 所有请求固定为 64 字节，通过 Windows CIM/MI 调用 `root\\wmi:OemWMIMethod` 的 `ACPI\PNP0C14\HWMI_0` 实例及 `OemWMIfun` 方法；这与研究阶段成功的 `Get-CimInstance` / `Invoke-CimMethod` 路径一致。项目不复制、加载或分发荣耀 DLL。
 
