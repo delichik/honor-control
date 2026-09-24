@@ -183,7 +183,9 @@ public sealed partial class MainWindow : Window
         {
             XamlRoot = AppRoot.XamlRoot,
             Title = "应用" + viewModel.SelectedPerformanceModeLabel,
-            Content = "这是实验性控制。设备会接收模式请求，但应用无法可靠确认当前模式，也不能保证与荣耀电脑管家的风扇或 GPU 策略完全一致。",
+            Content = viewModel.SelectedPerformanceMode == 2
+                ? "将把固件切换到高能模式，并启用 Honor Performance 电源方案。功耗、温度和风扇噪声可能明显上升。"
+                : "将把固件切换到智能模式，并恢复 Windows 平衡电源方案。",
             PrimaryButtonText = "继续应用",
             CloseButtonText = "取消",
             DefaultButton = ContentDialogButton.Close

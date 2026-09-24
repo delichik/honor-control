@@ -192,7 +192,9 @@
                                         <FontIcon Glyph="&#xE945;" FontSize="20" HorizontalAlignment="Center" VerticalAlignment="Center" />
                                     </Border>
                                     <StackPanel Grid.Column="1" Spacing="4" VerticalAlignment="Center">
-                                        <TextBlock Text="切换条件" Style="{StaticResource BodyStrongTextBlockStyle}" />
+                                        <TextBlock Text="性能状态" Style="{StaticResource BodyStrongTextBlockStyle}" />
+                                        <TextBlock Text="{Binding CurrentPerformanceModeText}" Style="{StaticResource SectionTitleTextStyle}" />
+                                        <TextBlock Text="{Binding CurrentPowerPlanText}" Style="{StaticResource SecondaryTextStyle}" />
                                         <TextBlock Text="{Binding PerformanceRequirementText}" Style="{StaticResource SecondaryTextStyle}" />
                                     </StackPanel>
                                     <Border Grid.Column="2" Padding="12,7" CornerRadius="16" Background="{ThemeResource ControlFillColorDefaultBrush}" VerticalAlignment="Center">
@@ -234,8 +236,8 @@
                                             <ColumnDefinition Width="Auto" />
                                         </Grid.ColumnDefinitions>
                                         <StackPanel Spacing="2" VerticalAlignment="Center">
-                                            <TextBlock Text="实验性控制" Style="{StaticResource BodyStrongTextBlockStyle}" />
-                                            <TextBlock Text="设备会接收模式请求，但当前状态无法可靠回读。" Style="{StaticResource SecondaryTextStyle}" />
+                                            <TextBlock Text="{Binding PendingChangeTitle}" Style="{StaticResource BodyStrongTextBlockStyle}" />
+                                            <TextBlock Text="{Binding PendingChangeDetail}" Style="{StaticResource SecondaryTextStyle}" />
                                         </StackPanel>
                                         <Button Grid.Column="1" Content="应用性能模式" Style="{StaticResource PrimaryActionButtonStyle}" Click="ApplyPerformanceMode_Click" IsEnabled="{Binding CanApplyPerformance}" />
                                     </Grid>

@@ -32,29 +32,49 @@ namespace HonorControl.Services
 
         public PerformanceStatus GetPerformanceStatus()
         {
-            Response mode = Send(0x0802);
-            RequireBiosSuccess(mode, "读取性能模式状态");
+            Response modeState = Send(0x0E04);
+            RequireBiosSuccess(modeState, "读取性能模式状态");
+            Response telemetry = Send(0x0802);
+            RequireBiosSuccess(telemetry, "读取性能遥测");
             Response support = Send(0x3C06);
             RequireBiosSuccess(support, "读取性能模式支持信息");
             Response adapter = Send(0x0902);
-            RequireBiosSuccess(adapter, "读取适配器输出信息");
-            if (support.Output.Length < 2 || adapter.Output.Length < 4)
-                throw new InvalidOperationException("性能模式能力或适配器响应长度不足。");
+            RequireBiosSuccess(adapter, "读取适配器电压");
+            if (modeState.Output.Length < 2 || support.Output.Length < 2 || adapter.Output.Length < 4)
+                throw new InvalidOperationException("性能模式状态、能力或适配器电压响应长度不足。");
 
+            int currentMode = modeState.Output[1] switch { 0 => 1, 1 => 2, _ => 0 };
             int supportMask = support.Output[1];
-            int adapterOutput = adapter.Output[2] | (adapter.Output[3] << 8);
-            return new PerformanceStatus(ToHex(mode.Output, 8), ToHex(support.Output, 8), ToHex(adapter.Output, 8), supportMask, adapterOutput);
+            int adapterVoltage = adapter.Output[2] | (adapter.Output[3] << 8);
+            return new PerformanceStatus(
+                currentMode,
+                ToHex(modeState.Output, 8),
+                ToHex(telemetry.Output, 8),
+                ToHex(support.Output, 8),
+                ToHex(adapter.Output, 8),
+                supportMask,
+                adapterVoltage);
         }
 
         public PerformanceStatus SetPerformanceMode(int mode)
         {
             if (mode < 1 || mode > 2)
-                throw new ArgumentOutOfRangeException("mode", "当前应用仅允许实验性的模式 1 或模式 2。");
+                throw new ArgumentOutOfRangeException("mode", "当前应用仅允许智能模式或高能模式。");
 
             // PerfCommonPlugin.dll SetTurboMode(mode): byte 2 is mode - 1.
             Response response = Send(0x0C07, (byte)(mode - 1));
             RequireBiosSuccess(response, "设置性能模式");
-            return GetPerformanceStatus();
+
+            PerformanceStatus? latest = null;
+            for (int attempt = 0; attempt < 4; attempt++)
+            {
+                if (attempt > 0) Thread.Sleep(200);
+                latest = GetPerformanceStatus();
+                if (latest.CurrentMode == mode) return latest;
+            }
+
+            string actual = latest?.CurrentMode switch { 1 => "智能模式", 2 => "高能模式", _ => "未知模式" };
+            throw new InvalidOperationException($"性能模式写入后的 0x0E04 回读不符：请求模式 {mode}，实际为{actual}。");
         }
 
         private static Response Send(ushort command, params byte[] payload)
