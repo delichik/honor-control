@@ -17,14 +17,40 @@ $arguments = @(
     '/property:Configuration=Release'
     '/property:Platform=x64'
     '/property:RuntimeIdentifier=win-x64'
-    '/verbosity:diagnostic'
+    '/verbosity:normal'
     "/property:SelfContained=$($SelfContained.ToString().ToLowerInvariant())"
     "/property:WindowsAppSDKSelfContained=$($WindowsAppSdkSelfContained.ToString().ToLowerInvariant())"
     "/property:PublishDir=$PublishDirectory"
 )
 
-& msbuild @arguments 2>&1 | Tee-Object -FilePath $logPath
-$exitCode = $LASTEXITCODE
+$msbuild = Get-Command msbuild -ErrorAction Stop
+$startInfo = [System.Diagnostics.ProcessStartInfo]::new()
+$startInfo.FileName = $msbuild.Source
+$startInfo.UseShellExecute = $false
+$startInfo.CreateNoWindow = $true
+$startInfo.RedirectStandardOutput = $true
+$startInfo.RedirectStandardError = $true
+foreach ($argument in $arguments) {
+    $startInfo.ArgumentList.Add($argument)
+}
+
+$process = [System.Diagnostics.Process]::new()
+$process.StartInfo = $startInfo
+$process.Start() | Out-Null
+$standardOutputTask = $process.StandardOutput.ReadToEndAsync()
+$standardErrorTask = $process.StandardError.ReadToEndAsync()
+$process.WaitForExit()
+$standardOutput = $standardOutputTask.GetAwaiter().GetResult()
+$standardError = $standardErrorTask.GetAwaiter().GetResult()
+$exitCode = $process.ExitCode
+$process.Dispose()
+
+$combinedOutput = $standardOutput
+if (-not [string]::IsNullOrWhiteSpace($standardError)) {
+    $combinedOutput += "`n--- STDERR ---`n" + $standardError
+}
+[System.IO.File]::WriteAllText($logPath, $combinedOutput, [System.Text.UTF8Encoding]::new($false))
+Write-Output $combinedOutput
 if ($exitCode -eq 0) {
     exit 0
 }
@@ -59,7 +85,7 @@ if ($errorLines.Count -eq 0) {
         }
     }
     $contextIndexes = [System.Collections.Generic.SortedSet[int]]::new()
-    foreach ($focusIndex in $focusIndexes | Select-Object -Last 4) {
+    foreach ($focusIndex in $focusIndexes | Select-Object -First 4) {
         for ($index = [Math]::Max(0, $focusIndex - 2); $index -le [Math]::Min($logLines.Count - 1, $focusIndex + 4); $index++) {
             $contextIndexes.Add($index) | Out-Null
         }
