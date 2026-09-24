@@ -36,6 +36,7 @@ public sealed class MainViewModel : ViewModelBase
     private int? batteryPercent;
     private int? adapterOutput;
     private bool supportsHighPerformance;
+    private int selectedChargePreset;
     private int selectedPerformanceMode = 1;
 
     public ObservableCollection<ActivityRecord> ActivityRecords { get; } = new();
@@ -84,9 +85,17 @@ public sealed class MainViewModel : ViewModelBase
 
     public bool IsNotBusy => !IsBusy;
     public bool CanConfigureCharge => chargeSupported && !IsBusy;
+    public bool CanApplySelectedChargePreset => CanConfigureCharge && selectedChargePreset is 1 or 2;
     public bool CanConfigurePerformance => performanceSupported && isOnAcPower == true && batteryPercent.HasValue && batteryPercent.Value >= 20 && adapterOutput.GetValueOrDefault() > 0 && !IsBusy;
     public bool CanSelectHighPerformance => CanConfigurePerformance && supportsHighPerformance;
     public bool CanApplyPerformance => CanConfigurePerformance && (selectedPerformanceMode != 2 || supportsHighPerformance);
+    public int SelectedChargePresetIndex
+    {
+        get => selectedChargePreset - 1;
+        set => SelectChargePreset(value + 1);
+    }
+    public string SelectedChargePresetLabel => selectedChargePreset == 1 ? "电池保护 · 40%–70%" : selectedChargePreset == 2 ? "充满模式 · 0%–100%" : "尚未选择预设";
+    public string SelectedChargePresetDetail => selectedChargePreset == 1 ? "适合长期接通电源使用，减少电池长期满电停留。" : selectedChargePreset == 2 ? "允许充至 100%，适合即将移动使用的场景。" : "选择一个预设后再应用；当前 BIOS 配置不会自动改变。";
     public string SelectedPerformanceModeLabel => selectedPerformanceMode == 2 ? "高能模式" : "智能模式";
 
     public async Task RefreshAsync()
@@ -121,6 +130,7 @@ public sealed class MainViewModel : ViewModelBase
                 ChargeStatus = FormatChargeThreshold(threshold);
                 CustomChargeStart = threshold.Start.ToString();
                 CustomChargeEnd = threshold.End.ToString();
+                SelectChargePreset(PresetFromThreshold(threshold));
                 ChargeAvailabilityText = "荣耀充电阈值接口可用。写入后会自动回读验证。";
                 ChargeAvailabilitySeverity = InfoBarSeverity.Success;
             }
@@ -162,6 +172,22 @@ public sealed class MainViewModel : ViewModelBase
 
     public Task SetSmartChargeAsync() => SetChargeThresholdAsync(40, 70, "已选择电池保护", "正在下发 40%–70% 充电阈值。", "智能充电已写入并验证：{0}%–{1}%。");
     public Task DisableChargeLimitAsync() => SetChargeThresholdAsync(0, 100, "已选择充满模式", "正在下发 0%–100% 充电阈值。", "充电限制已关闭并验证：{0}%–{1}%。");
+
+    public Task ApplySelectedChargePresetAsync()
+    {
+        if (!CanApplySelectedChargePreset) return Task.CompletedTask;
+        return selectedChargePreset == 1 ? SetSmartChargeAsync() : DisableChargeLimitAsync();
+    }
+
+    public void SelectChargePreset(int preset)
+    {
+        if (preset is < 0 or > 2 || selectedChargePreset == preset) return;
+        selectedChargePreset = preset;
+        OnPropertyChanged(nameof(SelectedChargePresetIndex));
+        OnPropertyChanged(nameof(SelectedChargePresetLabel));
+        OnPropertyChanged(nameof(SelectedChargePresetDetail));
+        OnPropertyChanged(nameof(CanApplySelectedChargePreset));
+    }
 
     public async Task SetCustomChargeAsync()
     {
@@ -223,6 +249,7 @@ public sealed class MainViewModel : ViewModelBase
             ChargeStatus = FormatChargeThreshold(threshold);
             CustomChargeStart = threshold.Start.ToString();
             CustomChargeEnd = threshold.End.ToString();
+            SelectChargePreset(PresetFromThreshold(threshold));
             if (threshold.Start != start || threshold.End != end)
             {
                 FinishOperation("充电策略未达到请求值", "BIOS 返回成功，但回读为 " + threshold.Start + "%–" + threshold.End + "%；未采用 Linux 机型专用 quirk，避免对未识别机型盲写。", InfoBarSeverity.Warning);
@@ -422,6 +449,7 @@ public sealed class MainViewModel : ViewModelBase
     {
         OnPropertyChanged(nameof(IsNotBusy));
         OnPropertyChanged(nameof(CanConfigureCharge));
+        OnPropertyChanged(nameof(CanApplySelectedChargePreset));
         OnPropertyChanged(nameof(CanConfigurePerformance));
         OnPropertyChanged(nameof(CanSelectHighPerformance));
         OnPropertyChanged(nameof(CanApplyPerformance));
@@ -437,5 +465,12 @@ public sealed class MainViewModel : ViewModelBase
     {
         string state = threshold.Start == 0 && threshold.End == 100 ? "充满模式" : threshold.Start == 40 && threshold.End == 70 ? "电池保护已开启" : "当前为自定义阈值";
         return $"{state}：低于 {threshold.Start}% 恢复充电，达到 {threshold.End}% 停止充电。";
+    }
+
+    private static int PresetFromThreshold(ChargeThreshold threshold)
+    {
+        if (threshold.Start == 40 && threshold.End == 70) return 1;
+        if (threshold.Start == 0 && threshold.End == 100) return 2;
+        return 0;
     }
 }

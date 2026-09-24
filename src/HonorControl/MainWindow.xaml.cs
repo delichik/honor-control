@@ -1,6 +1,5 @@
 using System.ComponentModel;
 using Microsoft.UI;
-using Microsoft.UI.Composition.SystemBackdrops;
 using Microsoft.UI.Windowing;
 using Microsoft.UI.Xaml;
 using Microsoft.UI.Xaml.Controls;
@@ -8,6 +7,7 @@ using Microsoft.UI.Xaml.Media;
 using Windows.ApplicationModel.DataTransfer;
 using Windows.Graphics;
 using WinRT.Interop;
+using HonorControl.Services;
 using HonorControl.ViewModels;
 using Color = Windows.UI.Color;
 
@@ -16,10 +16,13 @@ namespace HonorControl;
 public sealed partial class MainWindow : Window
 {
     private readonly MainViewModel viewModel;
+    private readonly AppSettingsService settingsService = new();
+    private bool themeSelectorIsLoading;
 
     public MainWindow()
     {
         InitializeComponent();
+        if (NavigationHost.SettingsItem is NavigationViewItem settingsItem) settingsItem.Content = "设置";
         Title = "荣耀控制中心";
         ExtendsContentIntoTitleBar = true;
         SetTitleBar(AppTitleBar);
@@ -29,10 +32,10 @@ public sealed partial class MainWindow : Window
         viewModel = new MainViewModel();
         AppRoot.DataContext = viewModel;
         viewModel.PropertyChanged += ViewModel_PropertyChanged;
+        AppRoot.ActualThemeChanged += AppRoot_ActualThemeChanged;
         AppRoot.Loaded += async (_, _) =>
         {
-            ThemeSwitch.IsOn = AppRoot.ActualTheme == ElementTheme.Dark;
-            UpdateTitleBarColors(AppRoot.ActualTheme);
+            LoadThemePreference();
             UpdateAlertVisibility();
             await viewModel.RefreshAsync();
             UpdateAlertVisibility();
@@ -67,9 +70,17 @@ public sealed partial class MainWindow : Window
     }
 
     private async void Refresh_Click(object sender, RoutedEventArgs e) => await viewModel.RefreshAsync();
-    private async void EnableSmartCharge_Click(object sender, RoutedEventArgs e) => await viewModel.SetSmartChargeAsync();
-    private async void DisableSmartCharge_Click(object sender, RoutedEventArgs e) => await viewModel.DisableChargeLimitAsync();
     private async void ApplyCustomCharge_Click(object sender, RoutedEventArgs e) => await viewModel.SetCustomChargeAsync();
+    private async void ApplySelectedChargePreset_Click(object sender, RoutedEventArgs e) => await viewModel.ApplySelectedChargePresetAsync();
+
+    private void ChargeModeSelector_SelectionChanged(object sender, SelectionChangedEventArgs e)
+    {
+        if (viewModel is null || ChargeModeSelector.SelectedIndex < 0) return;
+        viewModel.SelectChargePreset(ChargeModeSelector.SelectedIndex + 1);
+    }
+
+    private void OpenCharge_Click(object sender, RoutedEventArgs e) => NavigationHost.SelectedItem = ChargeNavigationItem;
+    private void OpenPerformance_Click(object sender, RoutedEventArgs e) => NavigationHost.SelectedItem = PerformanceNavigationItem;
 
     private void CopyDiagnostics_Click(object sender, RoutedEventArgs e)
     {
@@ -91,10 +102,24 @@ public sealed partial class MainWindow : Window
 
     private void NavigationView_SelectionChanged(NavigationView sender, NavigationViewSelectionChangedEventArgs args)
     {
-        if (args.SelectedItem is not NavigationViewItem item || item.Tag is not string destination) return;
-        bool showDiagnostics = destination == "diagnostics";
-        OverviewView.Visibility = showDiagnostics ? Visibility.Collapsed : Visibility.Visible;
-        DiagnosticsView.Visibility = showDiagnostics ? Visibility.Visible : Visibility.Collapsed;
+        if (args.IsSettingsSelected)
+        {
+            NavigateTo("settings");
+            return;
+        }
+        if (args.SelectedItem is NavigationViewItem item && item.Tag is string destination)
+        {
+            NavigateTo(destination);
+        }
+    }
+
+    private void NavigateTo(string destination)
+    {
+        OverviewView.Visibility = destination == "overview" ? Visibility.Visible : Visibility.Collapsed;
+        ChargeView.Visibility = destination == "charge" ? Visibility.Visible : Visibility.Collapsed;
+        PerformanceView.Visibility = destination == "performance" ? Visibility.Visible : Visibility.Collapsed;
+        DiagnosticsView.Visibility = destination == "diagnostics" ? Visibility.Visible : Visibility.Collapsed;
+        SettingsView.Visibility = destination == "settings" ? Visibility.Visible : Visibility.Collapsed;
     }
 
     private void PerformanceModeSelector_SelectionChanged(object sender, SelectionChangedEventArgs e)
@@ -124,11 +149,53 @@ public sealed partial class MainWindow : Window
         }
     }
 
-    private void ThemeSwitch_Toggled(object sender, RoutedEventArgs e)
+    private void LoadThemePreference()
     {
-        ElementTheme theme = ThemeSwitch.IsOn ? ElementTheme.Dark : ElementTheme.Light;
-        AppRoot.RequestedTheme = theme;
-        UpdateTitleBarColors(theme);
+        ApplyThemePreference(settingsService.LoadTheme(), false);
+        if (!string.IsNullOrWhiteSpace(settingsService.LastError))
+        {
+            ThemeSettingsHint.Text = "无法读取保存的主题偏好：" + settingsService.LastError;
+        }
+    }
+
+    private void ThemeSelector_SelectionChanged(object sender, SelectionChangedEventArgs e)
+    {
+        if (themeSelectorIsLoading || ThemeSelector.SelectedItem is not ComboBoxItem item || item.Tag is not string value) return;
+        if (!Enum.TryParse(value, true, out AppThemePreference preference)) return;
+        ApplyThemePreference(preference, true);
+    }
+
+    private void ApplyThemePreference(AppThemePreference preference, bool save)
+    {
+        themeSelectorIsLoading = true;
+        ThemeSelector.SelectedIndex = preference switch
+        {
+            AppThemePreference.Light => 1,
+            AppThemePreference.Dark => 2,
+            _ => 0
+        };
+        themeSelectorIsLoading = false;
+
+        AppRoot.RequestedTheme = preference switch
+        {
+            AppThemePreference.Light => ElementTheme.Light,
+            AppThemePreference.Dark => ElementTheme.Dark,
+            _ => ElementTheme.Default
+        };
+        UpdateTitleBarColors(AppRoot.ActualTheme);
+
+        if (save)
+        {
+            settingsService.SaveTheme(preference);
+            ThemeSettingsHint.Text = string.IsNullOrWhiteSpace(settingsService.LastError)
+                ? "主题偏好已保存，并立即应用。"
+                : "主题已应用，但保存失败：" + settingsService.LastError;
+        }
+    }
+
+    private void AppRoot_ActualThemeChanged(FrameworkElement sender, object args)
+    {
+        UpdateTitleBarColors(AppRoot.ActualTheme);
     }
 
     private void UpdateTitleBarColors(ElementTheme theme)
