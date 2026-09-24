@@ -1,4 +1,5 @@
 using System.Collections.ObjectModel;
+using System.Text;
 using Microsoft.UI.Xaml.Controls;
 using HonorControl.Models;
 using HonorControl.Services;
@@ -90,6 +91,12 @@ public sealed class MainViewModel : ViewModelBase
 
     public async Task RefreshAsync()
     {
+        ConnectionTitle = "正在检查设备接口";
+        DeviceSummary = "正在执行只读 HWMI 探测。";
+        ConnectionSeverity = InfoBarSeverity.Informational;
+        ChargeStatus = "正在读取充电阈值…";
+        ChargeAvailabilityText = "正在探测 0x1103 只读命令。";
+        PerformanceRequirementText = "正在探测性能模式只读命令。";
         BeginOperation("正在检查设备", "正在读取电源状态、充电策略和性能接口。", InfoBarSeverity.Informational);
         try
         {
@@ -120,15 +127,15 @@ public sealed class MainViewModel : ViewModelBase
             else
             {
                 ChargeStatus = "无法读取充电阈值。";
-                ChargeAvailabilityText = "充电接口不可用：" + (chargeError?.Message ?? "未知错误");
+                ChargeAvailabilityText = "充电阈值接口未通过只读探测；请在诊断页查看失败阶段和 HRESULT。";
                 ChargeAvailabilitySeverity = InfoBarSeverity.Error;
             }
 
             UpdatePerformanceRequirements();
             UpdateDeviceSummary(chargeError, performanceError);
-            DiagnosticDetails = BuildDiagnostics(power, performance, chargeError, performanceError);
+            DiagnosticDetails = BuildDiagnostics(power, threshold, performance, chargeError, performanceError);
             FinishOperation(chargeSupported || performanceSupported ? "设备检查完成" : "无法连接设备接口",
-                chargeSupported || performanceSupported ? "已读取可用接口。你可以根据当前状态选择操作。" : "请确认管理员权限、机型支持和 BIOS 状态。",
+                chargeSupported || performanceSupported ? "已读取可用接口。你可以根据当前状态选择操作。" : "只读探测未获得有效响应，详细失败阶段和 HRESULT 已写入诊断页。",
                 chargeSupported || performanceSupported ? InfoBarSeverity.Success : InfoBarSeverity.Error);
         }
         catch (Exception exception)
@@ -140,12 +147,12 @@ public sealed class MainViewModel : ViewModelBase
             ConnectionTitle = "设备检查失败";
             ConnectionSeverity = InfoBarSeverity.Error;
             DeviceSummary = "无法读取系统电源或荣耀接口状态。";
-            ChargeAvailabilityText = "充电接口检查失败：" + exception.Message;
+            ChargeAvailabilityText = "充电接口检查被系统级错误中断；请查看诊断页。";
             ChargeAvailabilitySeverity = InfoBarSeverity.Error;
-            PerformanceRequirementText = "性能接口检查失败：" + exception.Message;
+            PerformanceRequirementText = "性能接口检查被系统级错误中断；请查看诊断页。";
             PerformanceRequirementSeverity = InfoBarSeverity.Error;
-            DiagnosticDetails = "设备检查异常：" + exception;
-            FinishOperation("设备检查失败", exception.Message, InfoBarSeverity.Error);
+            DiagnosticDetails = BuildOperationFailureDiagnostics("设备检查", exception);
+            FinishOperation("设备检查失败", "无法完成只读探测，详细错误已写入诊断页。", InfoBarSeverity.Error);
         }
         finally
         {
@@ -189,8 +196,9 @@ public sealed class MainViewModel : ViewModelBase
         }
         catch (Exception exception)
         {
-            FinishOperation("性能模式设置失败", exception.Message, InfoBarSeverity.Error);
-            AddActivity("性能模式写入失败：" + exception.Message, true);
+            DiagnosticDetails = BuildOperationFailureDiagnostics("性能模式设置", exception);
+            FinishOperation("性能模式设置失败", "接口拒绝或未完成写入，详细错误已写入诊断页。", InfoBarSeverity.Error);
+            AddActivity("性能模式写入失败；请查看诊断页。", true);
         }
         finally { IsBusy = false; }
     }
@@ -226,8 +234,9 @@ public sealed class MainViewModel : ViewModelBase
         }
         catch (Exception exception)
         {
-            FinishOperation("充电策略设置失败", exception.Message, InfoBarSeverity.Error);
-            AddActivity("充电策略写入失败：" + exception.Message, true);
+            DiagnosticDetails = BuildOperationFailureDiagnostics("充电策略设置", exception);
+            FinishOperation("充电策略设置失败", "接口拒绝或未完成写入，详细错误已写入诊断页。", InfoBarSeverity.Error);
+            AddActivity("充电策略写入失败；请查看诊断页。", true);
         }
         finally { IsBusy = false; }
     }
@@ -299,16 +308,44 @@ public sealed class MainViewModel : ViewModelBase
         {
             ConnectionTitle = "荣耀硬件接口不可用";
             ConnectionSeverity = InfoBarSeverity.Error;
-            DeviceSummary = "未读取到可用响应。请确认管理员权限、机型支持和 BIOS 状态。";
+            DeviceSummary = "只读探测没有获得响应。请在诊断页查看失败阶段、候选实例和 HRESULT。";
         }
     }
 
-    private static string BuildDiagnostics(SystemPowerSnapshot power, PerformanceStatus? performance, Exception? chargeError, Exception? performanceError)
+    private static string BuildDiagnostics(SystemPowerSnapshot power, ChargeThreshold? threshold, PerformanceStatus? performance, Exception? chargeError, Exception? performanceError)
     {
         string powerState = power.IsOnAcPower == true ? "AC 在线" : power.IsOnAcPower == false ? "AC 离线" : "AC 状态未知";
-        string charge = chargeError == null ? "充电接口：可用" : "充电接口错误：" + chargeError.Message;
-        string mode = performance == null ? "性能接口错误：" + (performanceError?.Message ?? "未知") : "性能原始返回：" + performance.ModeQuery + "；支持掩码：0x" + performance.SupportMask.ToString("X2") + "；适配器原始返回：" + performance.AdapterQuery + "；适配器值：" + performance.AdapterOutput;
-        return "目标接口：root\\wmi / OemWMIMethod / ACPI\\PNP0C14\\HWMI_0\n" + powerState + "\n" + charge + "\n" + mode;
+        string charge = threshold != null
+            ? $"充电接口：可用；0x1103 回读阈值={threshold.Start}%–{threshold.End}%"
+            : "充电接口错误：\n" + (chargeError == null ? "未知" : FormatExceptionDiagnostics(chargeError));
+        string mode = performance == null
+            ? "性能接口错误：\n" + (performanceError == null ? "未知" : FormatExceptionDiagnostics(performanceError))
+            : "性能原始返回：" + performance.ModeQuery + "；支持掩码：0x" + performance.SupportMask.ToString("X2") + "；适配器原始返回：" + performance.AdapterQuery + "；适配器值：" + performance.AdapterOutput;
+        return "目标接口：root\\wmi / OemWMIMethod\n候选实例优先级：HWMI_0 → HWMI_1 → 其他活动实例\n" + powerState + "\n\n" + charge + "\n\n" + mode;
+    }
+
+    private static string BuildOperationFailureDiagnostics(string operation, Exception exception)
+    {
+        return operation + "失败\n" + FormatExceptionDiagnostics(exception);
+    }
+
+    private static string FormatExceptionDiagnostics(Exception exception)
+    {
+        StringBuilder details = new();
+        Exception? current = exception;
+        int depth = 0;
+        while (current != null)
+        {
+            if (depth > 0) details.AppendLine().Append("内部异常 ").Append(depth).AppendLine("：");
+            details.Append(current.GetType().FullName)
+                .Append(" (HRESULT 0x")
+                .Append(current.HResult.ToString("X8"))
+                .AppendLine(")")
+                .Append(current.Message);
+            current = current.InnerException;
+            depth++;
+        }
+        return details.ToString();
     }
 
     private static bool CanWritePerformance(SystemPowerSnapshot power, PerformanceStatus status, int mode, out string reason)

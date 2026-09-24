@@ -66,47 +66,109 @@ namespace HonorControl.Services
             input[1] = (byte)((command >> 8) & 0xFF);
             Array.Copy(payload, 0, input, 2, payload.Length);
 
-            ManagementScope scope = new ManagementScope(NamespacePath);
-            scope.Connect();
-            List<Candidate> candidates = GetCandidates(scope);
-            Exception? lastTransportError = null;
-            foreach (Candidate candidate in candidates)
+            ConnectionOptions options = new ConnectionOptions
             {
-                for (int attempt = 0; attempt < 2; attempt++)
+                Impersonation = ImpersonationLevel.Impersonate,
+                EnablePrivileges = true
+            };
+            ManagementScope scope = new ManagementScope(NamespacePath, options);
+            try
+            {
+                scope.Connect();
+            }
+            catch (Exception exception)
+            {
+                throw CreateDiagnosticException("连接 root\\wmi", Array.Empty<Candidate>(), exception);
+            }
+
+            try
+            {
+                using (ManagementObjectSearcher searcher = new ManagementObjectSearcher(scope, new ObjectQuery("SELECT * FROM OemWMIMethod")))
+                using (ManagementObjectCollection objects = searcher.Get())
                 {
-                    try { return Invoke(scope, candidate.Path, input); }
-                    catch (Exception exception) when (IsTransportError(exception))
+                    List<Candidate> candidates;
+                    try
                     {
-                        lastTransportError = exception;
-                        if (attempt == 0) Thread.Sleep(100);
+                        candidates = GetCandidates(objects);
+                    }
+                    catch (Exception exception)
+                    {
+                        throw CreateDiagnosticException("读取 OemWMIMethod 候选实例", Array.Empty<Candidate>(), exception);
+                    }
+                    try
+                    {
+                        Exception? lastTransportError = null;
+                        string? lastStage = null;
+                        List<string> attemptFailures = new List<string>();
+                        foreach (Candidate candidate in candidates)
+                        {
+                            if (!candidate.IsEligible) continue;
+                            for (int attempt = 0; attempt < 2; attempt++)
+                            {
+                                string stage = $"调用 OemWMIfun 命令 0x{command:X4}（{candidate.InstanceName}，第 {attempt + 1} 次）";
+                                try { return Invoke(candidate.Object, input); }
+                                catch (Exception exception) when (IsTransportError(exception))
+                                {
+                                    lastTransportError = exception;
+                                    lastStage = stage;
+                                    attemptFailures.Add(stage + "：" + FormatExceptionChain(exception));
+                                    if (attempt == 0) Thread.Sleep(100);
+                                }
+                                catch (Exception exception)
+                                {
+                                    attemptFailures.Add(stage + "：" + FormatExceptionChain(exception));
+                                    throw CreateDiagnosticException(stage, candidates, exception, attemptFailures);
+                                }
+                            }
+                        }
+
+                        if (lastTransportError != null)
+                            throw CreateDiagnosticException(lastStage ?? $"调用 OemWMIfun 命令 0x{command:X4}", candidates, lastTransportError, attemptFailures);
+                        throw new InvalidOperationException($"未找到活动的荣耀 HWMI 接口。诊断：命令=0x{command:X4}；候选实例=" + FormatCandidates(candidates) + "。此机型可能不支持该接口。");
+                    }
+                    finally
+                    {
+                        foreach (Candidate candidate in candidates) candidate.Dispose();
                     }
                 }
             }
-            if (lastTransportError != null)
-                throw new InvalidOperationException("荣耀 HWMI 接口调用失败，已重试一次。", lastTransportError);
-            throw new InvalidOperationException("未找到活动的荣耀 HWMI 接口。此机型可能不支持该接口。");
+            catch (InvalidOperationException)
+            {
+                throw;
+            }
+            catch (Exception exception)
+            {
+                throw CreateDiagnosticException("枚举 OemWMIMethod", Array.Empty<Candidate>(), exception);
+            }
         }
 
-        private static List<Candidate> GetCandidates(ManagementScope scope)
+        private static List<Candidate> GetCandidates(ManagementObjectCollection objects)
         {
             List<Candidate> result = new List<Candidate>();
-            using (ManagementObjectSearcher searcher = new ManagementObjectSearcher(scope, new ObjectQuery("SELECT * FROM OemWMIMethod")))
-            using (ManagementObjectCollection objects = searcher.Get())
+            try
             {
                 foreach (ManagementObject item in objects)
                 {
-                    using (item)
+                    try
                     {
                         string? instanceName = Convert.ToString(item["InstanceName"]);
-                        string? path = item.Path?.Path;
                         bool active = IsActive(item["Active"]);
-                        if (!string.IsNullOrWhiteSpace(instanceName) && !string.IsNullOrWhiteSpace(path) && active)
-                            result.Add(new Candidate(instanceName, path));
+                        result.Add(new Candidate(item, instanceName, active));
+                    }
+                    catch
+                    {
+                        item.Dispose();
+                        throw;
                     }
                 }
+                result.Sort((left, right) => CandidateRank(left).CompareTo(CandidateRank(right)));
+                return result;
             }
-            result.Sort((left, right) => CandidateRank(left).CompareTo(CandidateRank(right)));
-            return result;
+            catch
+            {
+                foreach (Candidate candidate in result) candidate.Dispose();
+                throw;
+            }
         }
 
         private static int CandidateRank(Candidate candidate)
@@ -116,9 +178,8 @@ namespace HonorControl.Services
             return 2;
         }
 
-        private static Response Invoke(ManagementScope scope, string path, byte[] input)
+        private static Response Invoke(ManagementObject candidate, byte[] input)
         {
-            using (ManagementObject candidate = new ManagementObject(scope, new ManagementPath(path), null))
             using (ManagementBaseObject parameters = candidate.GetMethodParameters("OemWMIfun"))
             {
                 parameters["u8Input"] = input;
@@ -132,6 +193,53 @@ namespace HonorControl.Services
                     return new Response(output[0], output);
                 }
             }
+        }
+
+        private static InvalidOperationException CreateDiagnosticException(string stage, IReadOnlyCollection<Candidate> candidates, Exception exception, IReadOnlyCollection<string>? attemptFailures = null)
+        {
+            string attempts = attemptFailures == null || attemptFailures.Count == 0
+                ? string.Empty
+                : "；尝试记录=" + string.Join(" || ", attemptFailures);
+            return new InvalidOperationException(
+                "荣耀 HWMI 接口失败。诊断：阶段=" + stage + "；候选实例=" + FormatCandidates(candidates) + "；异常链=" + FormatExceptionChain(exception) + attempts + "。",
+                exception);
+        }
+
+        private static string FormatCandidates(IEnumerable<Candidate> candidates)
+        {
+            StringBuilder text = new StringBuilder();
+            foreach (Candidate candidate in candidates)
+            {
+                if (text.Length > 0) text.Append(", ");
+                text.Append(candidate.InstanceName);
+                text.Append(candidate.IsActive ? " (Active)" : " (Inactive)");
+            }
+            return text.Length == 0 ? "无" : text.ToString();
+        }
+
+        private static string FormatExceptionChain(Exception exception)
+        {
+            StringBuilder text = new StringBuilder();
+            for (Exception? current = exception; current != null; current = current.InnerException)
+            {
+                if (text.Length > 0) text.Append(" -> ");
+                text.Append(current.GetType().Name);
+                text.Append("[HResult=0x");
+                text.Append(current.HResult.ToString("X8"));
+                if (current is ManagementException managementException)
+                {
+                    text.Append(", ErrorCode=");
+                    text.Append(managementException.ErrorCode);
+                }
+                if (current is COMException comException)
+                {
+                    text.Append(", COMHResult=0x");
+                    text.Append(comException.HResult.ToString("X8"));
+                }
+                text.Append("]: ");
+                text.Append(current.Message);
+            }
+            return text.ToString();
         }
 
         private static void ValidateTransportResult(ManagementBaseObject result)
@@ -183,11 +291,21 @@ namespace HonorControl.Services
             return text.ToString();
         }
 
-        private sealed class Candidate
+        private sealed class Candidate : IDisposable
         {
-            public Candidate(string instanceName, string path) { InstanceName = instanceName; Path = path; }
+            public Candidate(ManagementObject @object, string? instanceName, bool isActive)
+            {
+                Object = @object;
+                InstanceName = string.IsNullOrWhiteSpace(instanceName) ? "<未命名实例>" : instanceName;
+                IsActive = isActive;
+            }
+
+            public ManagementObject Object { get; private set; }
             public string InstanceName { get; private set; }
-            public string Path { get; private set; }
+            public bool IsActive { get; private set; }
+            public bool IsEligible => IsActive && InstanceName != "<未命名实例>";
+
+            public void Dispose() => Object.Dispose();
         }
 
         private sealed class Response
