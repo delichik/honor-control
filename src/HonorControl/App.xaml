@@ -41,7 +41,7 @@
                 <Setter Property="VerticalAlignment" Value="Center" />
             </Style>
             <Style x:Key="OptionRadioButtonStyle" TargetType="RadioButton">
-                <Setter Property="MinHeight" Value="72" />
+                <Setter Property="MinHeight" Value="64" />
                 <Setter Property="HorizontalAlignment" Value="Stretch" />
                 <Setter Property="HorizontalContentAlignment" Value="Stretch" />
                 <Setter Property="VerticalContentAlignment" Value="Center" />
@@ -103,10 +103,12 @@
                                         </VisualState>
                                     </VisualStateGroup>
                                     <VisualStateGroup x:Name="CheckStates">
-                                        <VisualState x:Name="Unchecked" />
+                                        <VisualState x:Name="Unchecked">
+                                            <Storyboard><DoubleAnimation Storyboard.TargetName="SelectionTint" Storyboard.TargetProperty="Opacity" To="0" Duration="0:0:0.18" /></Storyboard>
+                                        </VisualState>
                                         <VisualState x:Name="Checked">
+                                            <Storyboard><DoubleAnimation Storyboard.TargetName="SelectionTint" Storyboard.TargetProperty="Opacity" To="0.08" Duration="0:0:0.18" /></Storyboard>
                                             <VisualState.Setters>
-                                                <Setter Target="SelectionTint.Opacity" Value="0.08" />
                                                 <Setter Target="CardBackground.BorderBrush" Value="{ThemeResource AccentFillColorDefaultBrush}" />
                                                 <Setter Target="CardBackground.BorderThickness" Value="2" />
                                                 <Setter Target="SelectionIndicator.Background" Value="{ThemeResource AccentFillColorDefaultBrush}" />

@@ -1,5 +1,4 @@
 using System.ComponentModel;
-using System.Globalization;
 using HonorControl.Services;
 using HonorControl.ViewModels;
 using Microsoft.UI;
@@ -51,6 +50,7 @@ public sealed partial class MainWindow : Window
         Closed += MainWindow_Closed;
 
         viewModel = new MainViewModel();
+        PopulateCustomChargeOptions();
         AppRoot.DataContext = viewModel;
         viewModel.PropertyChanged += ViewModel_PropertyChanged;
         AppRoot.ActualThemeChanged += AppRoot_ActualThemeChanged;
@@ -139,14 +139,20 @@ public sealed partial class MainWindow : Window
         if (int.TryParse(tag, out int mode)) viewModel.SelectPerformanceMode(mode);
     }
 
-    private void CustomChargeNumberBox_ValueChanged(NumberBox sender, NumberBoxValueChangedEventArgs args)
+    private void PopulateCustomChargeOptions()
     {
-        if (controlSelectionIsSyncing || viewModel is null) return;
-        string value = double.IsNaN(args.NewValue)
-            ? string.Empty
-            : args.NewValue.ToString("0.################", CultureInfo.InvariantCulture);
-        if (ReferenceEquals(sender, CustomChargeStartBox)) viewModel.CustomChargeStart = value;
-        if (ReferenceEquals(sender, CustomChargeEndBox)) viewModel.CustomChargeEnd = value;
+        for (int value = 0; value <= 100; value++)
+        {
+            CustomChargeStartBox.Items.Add(new ComboBoxItem { Content = $"{value}%" });
+            CustomChargeEndBox.Items.Add(new ComboBoxItem { Content = $"{value}%" });
+        }
+    }
+
+    private void CustomChargeSelection_Changed(object sender, SelectionChangedEventArgs args)
+    {
+        if (controlSelectionIsSyncing || viewModel is null || sender is not ComboBox selector || selector.SelectedIndex < 0) return;
+        if (ReferenceEquals(selector, CustomChargeStartBox)) viewModel.CustomChargeStart = selector.SelectedIndex.ToString();
+        if (ReferenceEquals(selector, CustomChargeEndBox)) viewModel.CustomChargeEnd = selector.SelectedIndex.ToString();
     }
 
     private void SyncControlsFromViewModel()
@@ -162,8 +168,15 @@ public sealed partial class MainWindow : Window
             CustomChargeEditor.Visibility = customChargeSelected ? Visibility.Visible : Visibility.Collapsed;
             SmartPerformanceOption.IsChecked = viewModel.SelectedPerformanceMode == 1;
             HighPerformanceOption.IsChecked = viewModel.SelectedPerformanceMode == 2;
-            CustomChargeStartBox.Value = ParseNumberBoxValue(viewModel.CustomChargeStart);
-            CustomChargeEndBox.Value = ParseNumberBoxValue(viewModel.CustomChargeEnd);
+            CustomChargeStartBox.SelectedIndex = ParseChargePercent(viewModel.CustomChargeStart);
+            CustomChargeEndBox.SelectedIndex = ParseChargePercent(viewModel.CustomChargeEnd);
+            int start = CustomChargeStartBox.SelectedIndex;
+            int end = CustomChargeEndBox.SelectedIndex;
+            for (int value = 0; value <= 100; value++)
+            {
+                ((ComboBoxItem)CustomChargeStartBox.Items[value]).IsEnabled = end < 0 || value < end;
+                ((ComboBoxItem)CustomChargeEndBox.Items[value]).IsEnabled = start < 0 || value > start;
+            }
         }
         finally
         {
@@ -171,8 +184,8 @@ public sealed partial class MainWindow : Window
         }
     }
 
-    private static double ParseNumberBoxValue(string value) =>
-        double.TryParse(value, NumberStyles.Integer, CultureInfo.InvariantCulture, out double result) ? result : double.NaN;
+    private static int ParseChargePercent(string value) =>
+        int.TryParse(value, out int result) && result is >= 0 and <= 100 ? result : -1;
 
     private void PageViewport_SizeChanged(object sender, SizeChangedEventArgs e)
     {
@@ -204,9 +217,9 @@ public sealed partial class MainWindow : Window
             XamlRoot = AppRoot.XamlRoot,
             Title = "应用" + viewModel.SelectedPerformanceModeLabel,
             Content = viewModel.SelectedPerformanceMode == 2
-                ? "将把固件切换到高能模式，并启用 Honor Performance 电源方案。功耗、温度和风扇噪声可能明显上升。"
-                : "将把固件切换到智能模式，并恢复 Windows 平衡电源方案。",
-            PrimaryButtonText = "继续应用",
+                ? "将启用 Honor Performance 电源计划。功耗、温度和噪声可能上升。"
+                : "将恢复 Windows 平衡电源计划。",
+            PrimaryButtonText = "应用",
             CloseButtonText = "取消",
             DefaultButton = ContentDialogButton.Close
         };
@@ -391,7 +404,7 @@ public sealed partial class MainWindow : Window
         {
             settingsService.SaveTheme(preference);
             ThemeSettingsHint.Text = string.IsNullOrWhiteSpace(settingsService.LastError)
-                ? "颜色会立即应用。"
+                ? string.Empty
                 : "主题已应用，但保存失败：" + settingsService.LastError;
         }
         else if (!string.IsNullOrWhiteSpace(settingsService.LastError))

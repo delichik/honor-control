@@ -21,13 +21,13 @@ public sealed class MainViewModel : ViewModelBase
     private string currentPowerPlanText = "Windows 电源方案未知";
     private string pendingChangeTitle = "尚未选择性能模式";
     private string pendingChangeDetail = "完成设备检查后可选择并应用模式。";
-    private string lastUpdatedText = "正在读取设备状态…";
+    private TaskCompletionSource? refreshFinished;
     private string operationTitle = "准备就绪";
     private string operationStatus = string.Empty;
     private string diagnosticDetails = "尚未获得诊断信息。";
     private string customChargeStart = "40";
     private string customChargeEnd = "70";
-    private string customChargeValidation = "输入将在点击“应用自定义值”后校验。";
+    private string customChargeValidation = "恢复值须低于停止值。";
     private InfoBarSeverity connectionSeverity = InfoBarSeverity.Informational;
     private InfoBarSeverity chargeAvailabilitySeverity = InfoBarSeverity.Informational;
     private InfoBarSeverity performanceRequirementSeverity = InfoBarSeverity.Informational;
@@ -59,7 +59,6 @@ public sealed class MainViewModel : ViewModelBase
     public string CurrentPowerPlanText { get => currentPowerPlanText; private set { currentPowerPlanText = value; OnPropertyChanged(); } }
     public string PendingChangeTitle { get => pendingChangeTitle; private set { pendingChangeTitle = value; OnPropertyChanged(); } }
     public string PendingChangeDetail { get => pendingChangeDetail; private set { pendingChangeDetail = value; OnPropertyChanged(); } }
-    public string LastUpdatedText { get => lastUpdatedText; private set { lastUpdatedText = value; OnPropertyChanged(); } }
     public string OperationTitle { get => operationTitle; private set { operationTitle = value; OnPropertyChanged(); } }
     public string OperationStatus { get => operationStatus; private set { operationStatus = value; OnPropertyChanged(); } }
     public string DiagnosticDetails { get => diagnosticDetails; private set { diagnosticDetails = value; OnPropertyChanged(); } }
@@ -102,15 +101,15 @@ public sealed class MainViewModel : ViewModelBase
         {
             isRefreshing = value;
             OnPropertyChanged();
-            NotifyControlStateChanged();
+            // Keep buttons and selection visuals stable during background reads.
         }
     }
     public bool CanConfigureCharge => chargeSupported && !IsBusy;
-    public bool CanApplySelectedChargePreset => CanConfigureCharge && !IsRefreshing && selectedChargePreset is 1 or 2;
-    public bool CanApplySelectedChargeMode => CanConfigureCharge && !IsRefreshing && (selectedChargePreset is 1 or 2 || selectedChargePreset == 0 && IsCustomThresholdValid());
+    public bool CanApplySelectedChargePreset => CanConfigureCharge && selectedChargePreset is 1 or 2;
+    public bool CanApplySelectedChargeMode => CanConfigureCharge && (selectedChargePreset is 1 or 2 || selectedChargePreset == 0 && IsCustomThresholdValid());
     public bool CanConfigurePerformance => performanceSupported && currentPerformanceMode is 1 or 2 && isOnAcPower == true && batteryPercent.HasValue && batteryPercent.Value >= 20 && !IsBusy;
     public bool CanSelectHighPerformance => CanConfigurePerformance && honorPerformancePlanAvailable;
-    public bool CanApplyPerformance => CanConfigurePerformance && !IsRefreshing && (selectedPerformanceMode == 1 ? balancedPowerPlanAvailable : honorPerformancePlanAvailable);
+    public bool CanApplyPerformance => CanConfigurePerformance && (selectedPerformanceMode == 1 ? balancedPowerPlanAvailable : honorPerformancePlanAvailable);
     public int SelectedChargePresetIndex
     {
         get => selectedChargePreset - 1;
@@ -118,7 +117,7 @@ public sealed class MainViewModel : ViewModelBase
     }
     public string SelectedChargePresetLabel => selectedChargePreset == 1 ? "电池保护 · 40%–70%" : selectedChargePreset == 2 ? "完整续航 · 0%–100%" : "自定义充电阈值";
     public string SelectedChargePresetDetail => selectedChargePreset == 1 ? "适合长期接通电源使用，减少电池长期满电停留。" : selectedChargePreset == 2 ? "允许充至 100%，适合即将移动使用的场景。" : CustomChargeValidation;
-    public string ChargeModeHint => selectedChargePreset == 0 ? CustomChargeValidation : "选择后应用到设备。";
+    public string ChargeModeHint => selectedChargePreset == 0 ? CustomChargeValidation : string.Empty;
     public string ChargeActionLabel => selectedChargePreset == 0 ? "应用自定义阈值" : "应用充电模式";
     public int SelectedPerformanceMode => selectedPerformanceMode;
     public string SelectedPerformanceModeLabel => selectedPerformanceMode == 2 ? "高能模式" : "智能模式";
@@ -128,6 +127,7 @@ public sealed class MainViewModel : ViewModelBase
         if (IsBusy || IsRefreshing) return;
 
         // Keep the last snapshot on screen while background reads are in flight.
+        refreshFinished = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
         IsRefreshing = true;
         try
         {
@@ -172,8 +172,6 @@ public sealed class MainViewModel : ViewModelBase
             UpdatePerformanceRequirements();
             UpdateDeviceSummary(chargeError, performanceError);
             DiagnosticDetails = BuildDiagnostics(power, threshold, performance, schemes, chargeError, performanceError, powerSchemeError);
-            LastUpdatedText = (chargeError != null || performanceError != null || powerSchemeError != null
-                ? "部分状态不可用 · " : "自动更新 · ") + DateTime.Now.ToString("HH:mm:ss");
         }
         catch (Exception exception)
         {
@@ -194,12 +192,17 @@ public sealed class MainViewModel : ViewModelBase
             PerformanceRequirementText = "无法读取性能控制状态，可在设置中查看诊断。";
             PerformanceRequirementSeverity = InfoBarSeverity.Error;
             DiagnosticDetails = BuildOperationFailureDiagnostics("设备检查", exception);
-            LastUpdatedText = "自动更新失败 · " + DateTime.Now.ToString("HH:mm:ss");
         }
         finally
         {
             IsRefreshing = false;
+            refreshFinished?.TrySetResult();
         }
+    }
+
+    private async Task WaitForRefreshAsync()
+    {
+        while (IsRefreshing) await (refreshFinished?.Task ?? Task.CompletedTask);
     }
 
     public Task SetSmartChargeAsync() => SetChargeThresholdAsync(40, 70, "已选择电池保护", "正在下发 40%–70% 充电阈值。", "电池保护已写入并验证：{0}%–{1}%。");
@@ -230,12 +233,14 @@ public sealed class MainViewModel : ViewModelBase
 
     public async Task SetCustomChargeAsync()
     {
+        await WaitForRefreshAsync();
         if (!TryGetCustomThreshold(out int start, out int end)) return;
         await SetChargeThresholdAsync(start, end, "正在应用自定义阈值", "正在下发自定义充电阈值。", "自定义阈值已写入并验证：{0}%–{1}%。");
     }
 
     public async Task SetPerformanceModeAsync()
     {
+        await WaitForRefreshAsync();
         if (!CanApplyPerformance) return;
         int targetMode = selectedPerformanceMode;
         string label = targetMode == 2 ? "高能模式" : "智能模式";
@@ -270,6 +275,8 @@ public sealed class MainViewModel : ViewModelBase
         catch (Exception exception)
         {
             string diagnostics = BuildOperationFailureDiagnostics(applyStarted ? "性能模式同步" : "性能模式写入前复核", exception);
+            string reason = exception.GetBaseException().Message;
+            string failure = exception.InnerException == null ? exception.Message : reason + " " + exception.Message;
             if (applyStarted)
             {
                 try
@@ -280,18 +287,18 @@ public sealed class MainViewModel : ViewModelBase
                     ApplyPerformanceState(finalState.Status, finalState.Schemes, false);
                     UpdatePerformanceRequirements();
                     diagnostics += "\n\n失败后的实际状态：\n" + BuildPerformanceDiagnostics(finalState.Status, finalState.Schemes);
-                    FinishOperation("性能模式同步失败", "已尝试回滚并重新读取实际状态，请在设置中核对诊断。", InfoBarSeverity.Error);
+                    FinishOperation("性能模式同步失败", failure + " 当前状态已重新读取。", InfoBarSeverity.Error);
                 }
                 catch (Exception refreshException)
                 {
                     diagnostics += "\n\n失败后的状态回查也失败：\n" + FormatExceptionDiagnostics(refreshException);
-                    FinishOperation("性能模式同步失败", "已尝试回滚，但无法确认最终状态；请等待自动更新后再核对。", InfoBarSeverity.Error);
+                    FinishOperation("性能模式同步失败", failure + " 最终状态未确认。", InfoBarSeverity.Error);
                 }
                 AddActivity("性能模式同步失败；已尝试回滚，请核对当前状态。", true);
             }
             else
             {
-                FinishOperation("性能模式未写入", "写入前复核失败，没有执行更改；可在设置中查看诊断。", InfoBarSeverity.Error);
+                FinishOperation("性能模式未写入", reason, InfoBarSeverity.Error);
                 AddActivity("性能模式写入前复核失败；未执行更改。", true);
             }
             DiagnosticDetails = diagnostics;
@@ -317,7 +324,12 @@ public sealed class MainViewModel : ViewModelBase
 
     private async Task SetChargeThresholdAsync(int start, int end, string title, string detail, string successFormat)
     {
-        if (!CanConfigureCharge || IsRefreshing) return;
+        await WaitForRefreshAsync();
+        if (!CanConfigureCharge)
+        {
+            FinishOperation("充电模式未写入", "充电状态不可用。", InfoBarSeverity.Warning);
+            return;
+        }
         BeginOperation(title, "1/2 " + detail, InfoBarSeverity.Informational);
         try
         {
@@ -617,12 +629,12 @@ public sealed class MainViewModel : ViewModelBase
     {
         if (TryGetCustomThreshold(out int start, out int end, false))
         {
-            CustomChargeValidation = $"输入有效：低于 {start}% 恢复充电，达到 {end}% 停止充电。";
+            CustomChargeValidation = string.Empty;
             CustomChargeValidationSeverity = InfoBarSeverity.Success;
         }
         else
         {
-            CustomChargeValidation = "请输入 0–100 的整数，且开始值不得大于停止值。";
+            CustomChargeValidation = "恢复值须低于停止值。";
             CustomChargeValidationSeverity = InfoBarSeverity.Error;
         }
         OnPropertyChanged(nameof(SelectedChargePresetDetail));
@@ -638,10 +650,10 @@ public sealed class MainViewModel : ViewModelBase
         end = 0;
         bool startParsed = int.TryParse(CustomChargeStart, out start);
         bool endParsed = int.TryParse(CustomChargeEnd, out end);
-        bool valid = startParsed && endParsed && start is >= 0 and <= 100 && end is >= 0 and <= 100 && start <= end;
+        bool valid = startParsed && endParsed && start is >= 0 and <= 100 && end is >= 0 and <= 100 && start < end;
         if (!valid && updateMessage)
         {
-            CustomChargeValidation = "请输入 0–100 的整数，且开始值不得大于停止值。";
+            CustomChargeValidation = "恢复值须低于停止值。";
             CustomChargeValidationSeverity = InfoBarSeverity.Error;
         }
         return valid;
@@ -682,8 +694,7 @@ public sealed class MainViewModel : ViewModelBase
 
     private static string FormatChargeThreshold(ChargeThreshold threshold)
     {
-        string state = threshold.Start == 0 && threshold.End == 100 ? "完整续航" : threshold.Start == 40 && threshold.End == 70 ? "电池保护已开启" : "当前为自定义阈值";
-        return $"{state}：低于 {threshold.Start}% 恢复充电，达到 {threshold.End}% 停止充电。";
+        return $"当前阈值：{threshold.Start}%–{threshold.End}%";
     }
 
     private static int PresetFromThreshold(ChargeThreshold threshold)

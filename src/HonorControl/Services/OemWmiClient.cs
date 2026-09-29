@@ -22,8 +22,8 @@ namespace HonorControl.Services
 
         public ChargeThreshold SetChargeThreshold(int start, int end)
         {
-            if (start < 0 || start > 100 || end < 0 || end > 100 || start > end)
-                throw new ArgumentOutOfRangeException("start", "充电阈值必须满足 0 <= start <= end <= 100。");
+            if (start < 0 || start > 100 || end < 0 || end > 100 || start >= end)
+                throw new ArgumentOutOfRangeException("start", "充电阈值必须满足 0 <= start < end <= 100。");
 
             Response response = Send(0x1003, (byte)start, (byte)end);
             RequireBiosSuccess(response, "设置充电阈值");
