@@ -28,6 +28,10 @@ jobs:
         with:
           dotnet-version: '8.0.408'
 
+      - name: Test Windows power scheme reads (read-only)
+        shell: pwsh
+        run: ./tools/Test-PowerSchemeRead.ps1
+
       - name: Set up Visual Studio MSBuild
         uses: microsoft/setup-msbuild@v2
         with:

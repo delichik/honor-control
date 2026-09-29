@@ -10,6 +10,7 @@ public sealed class PowerSchemeService
     public static readonly Guid HonorPerformanceSchemeId = new("B8A2C9F4-7D3E-4A1B-9C2F-5E8D6A3B1C4F");
 
     private const uint ErrorSuccess = 0;
+    private const uint ErrorFileNotFound = 2;
     private const uint ErrorMoreData = 234;
 
     public PowerSchemeStatus GetStatus()
@@ -65,7 +66,7 @@ public sealed class PowerSchemeService
     private static PowerSchemeInfo? TryGetScheme(Guid id)
     {
         try { return GetScheme(id); }
-        catch (Win32Exception) { return null; }
+        catch (Win32Exception exception) when (exception.NativeErrorCode == ErrorFileNotFound) { return null; }
     }
 
     private static PowerSchemeInfo GetScheme(Guid id)
@@ -73,8 +74,11 @@ public sealed class PowerSchemeService
         Guid mutableId = id;
         uint size = 0;
         uint result = PowerReadFriendlyName(IntPtr.Zero, ref mutableId, IntPtr.Zero, IntPtr.Zero, IntPtr.Zero, ref size);
-        if (result != ErrorMoreData || size < sizeof(char))
+        // A null-buffer size query can succeed while returning the required size.
+        if (result != ErrorSuccess && result != ErrorMoreData)
             throw new Win32Exception((int)result, $"Windows 电源方案 {id} 不存在或无法读取。");
+        if (size < sizeof(char) || size % sizeof(char) != 0)
+            throw new InvalidOperationException($"Windows 电源方案 {id} 返回了无效的名称长度：{size}。");
 
         IntPtr buffer = Marshal.AllocHGlobal(checked((int)size));
         try

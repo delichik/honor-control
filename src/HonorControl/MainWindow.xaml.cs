@@ -21,17 +21,19 @@ public sealed partial class MainWindow : Window
     private readonly AppSettingsService settingsService = new();
     private readonly AppWindow appWindow;
     private readonly TrayIconController trayIcon;
+    private readonly DispatcherTimer autoRefreshTimer = new() { Interval = TimeSpan.FromSeconds(15) };
     private bool themeSelectorIsLoading;
     private bool settingsAreLoading;
     private bool controlSelectionIsSyncing;
     private bool closeToTray;
     private bool hasShownTrayHint;
     private bool explicitExit;
+    private bool rootLoaded;
+    private bool isWindowVisible = true;
 
     public MainWindow()
     {
         InitializeComponent();
-        if (NavigationHost.SettingsItem is NavigationViewItem settingsItem) settingsItem.Content = "设置";
 
         Title = "Honor Control";
         ExtendsContentIntoTitleBar = true;
@@ -53,6 +55,8 @@ public sealed partial class MainWindow : Window
         viewModel.PropertyChanged += ViewModel_PropertyChanged;
         AppRoot.ActualThemeChanged += AppRoot_ActualThemeChanged;
         AppRoot.Loaded += AppRoot_Loaded;
+        Activated += MainWindow_Activated;
+        autoRefreshTimer.Tick += AutoRefreshTimer_Tick;
     }
 
     private AppWindow ConfigureWindow(IntPtr windowHandle)
@@ -79,6 +83,8 @@ public sealed partial class MainWindow : Window
         await viewModel.RefreshAsync();
         SyncControlsFromViewModel();
         UpdateAlertVisibility();
+        rootLoaded = true;
+        autoRefreshTimer.Start();
         AppDiagnostics.Write("[window] Initial device refresh completed.");
     }
 
@@ -106,7 +112,18 @@ public sealed partial class MainWindow : Window
         OperationAlert.IsOpen = viewModel.HasOperationStatus;
     }
 
-    private async void Refresh_Click(object sender, RoutedEventArgs e) => await viewModel.RefreshAsync();
+    private async void AutoRefreshTimer_Tick(object? sender, object e)
+    {
+        if (!rootLoaded || !isWindowVisible || viewModel.IsBusy || viewModel.IsRefreshing
+            || appWindow.Presenter is OverlappedPresenter { State: OverlappedPresenterState.Minimized }) return;
+        await viewModel.RefreshAsync(true);
+    }
+
+    private async void MainWindow_Activated(object sender, WindowActivatedEventArgs args)
+    {
+        if (!rootLoaded || !isWindowVisible || viewModel.IsBusy || viewModel.IsRefreshing || args.WindowActivationState == WindowActivationState.Deactivated) return;
+        await viewModel.RefreshAsync(true);
+    }
 
     private async void ApplySelectedChargeMode_Click(object sender, RoutedEventArgs e) => await viewModel.ApplySelectedChargeModeAsync();
 
@@ -157,24 +174,27 @@ public sealed partial class MainWindow : Window
     private static double ParseNumberBoxValue(string value) =>
         double.TryParse(value, NumberStyles.Integer, CultureInfo.InvariantCulture, out double result) ? result : double.NaN;
 
-    private void NavigationView_SelectionChanged(NavigationView sender, NavigationViewSelectionChangedEventArgs args)
+    private void PageViewport_SizeChanged(object sender, SizeChangedEventArgs e)
     {
-        if (args.IsSettingsSelected)
+        // Bound the page to the actual viewport before centering it.
+        // MaxWidth alone can leave the scroll content arranged beyond the window.
+        if (sender is ScrollViewer { Content: Grid { Children.Count: > 0 } container }
+            && container.Children[0] is FrameworkElement page)
         {
-            NavigateTo("settings");
-            return;
-        }
-        if (args.SelectedItem is NavigationViewItem item && item.Tag is string destination)
-        {
-            NavigateTo(destination);
+            page.Width = Math.Min(1000, Math.Max(0, e.NewSize.Width));
         }
     }
 
-    private void NavigateTo(string destination)
+    private void OpenSettings_Click(object sender, RoutedEventArgs e)
     {
-        ChargeView.Visibility = destination == "charge" ? Visibility.Visible : Visibility.Collapsed;
-        PerformanceView.Visibility = destination == "performance" ? Visibility.Visible : Visibility.Collapsed;
-        SettingsView.Visibility = destination == "settings" ? Visibility.Visible : Visibility.Collapsed;
+        DashboardView.Visibility = Visibility.Collapsed;
+        SettingsView.Visibility = Visibility.Visible;
+    }
+
+    private void BackToDashboard_Click(object sender, RoutedEventArgs e)
+    {
+        SettingsView.Visibility = Visibility.Collapsed;
+        DashboardView.Visibility = Visibility.Visible;
     }
 
     private async void ApplyPerformanceMode_Click(object sender, RoutedEventArgs e)
@@ -290,6 +310,8 @@ public sealed partial class MainWindow : Window
         if (!DispatcherQueue.TryEnqueue(() =>
         {
             if (explicitExit) return;
+            isWindowVisible = false;
+            autoRefreshTimer.Stop();
             sender.Hide();
             AppDiagnostics.Write("[window] Hidden to system tray.");
         }))
@@ -314,6 +336,8 @@ public sealed partial class MainWindow : Window
         {
             presenter.Restore();
         }
+        isWindowVisible = true;
+        autoRefreshTimer.Start();
         appWindow.Show();
         Activate();
     }
@@ -322,6 +346,7 @@ public sealed partial class MainWindow : Window
     {
         if (explicitExit) return;
         explicitExit = true;
+        autoRefreshTimer.Stop();
         AppDiagnostics.Write("[window] Explicit exit requested from system tray.");
         trayIcon.Dispose();
         Application.Current.Exit();
@@ -331,6 +356,7 @@ public sealed partial class MainWindow : Window
     {
         AppDiagnostics.Write("[window] Native window closed; exiting application.");
         explicitExit = true;
+        autoRefreshTimer.Stop();
         trayIcon.Dispose();
         Application.Current.Exit();
     }
