@@ -4,6 +4,10 @@ VisualStudioVersion = 17.0.31903.59
 MinimumVisualStudioVersion = 10.0.40219.1
 Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "HonorControl", "src\HonorControl\HonorControl.csproj", "{7E0140F7-A3D3-4D2F-A5B7-7C8FA5617CB8}"
 EndProject
+Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "HonorControl.Contracts", "src\HonorControl.Contracts\HonorControl.Contracts.csproj", "{F29963F2-563D-4401-8346-55AB63379732}"
+EndProject
+Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "HonorControl.Service", "src\HonorControl.Service\HonorControl.Service.csproj", "{9B265BE5-4149-4D91-9587-ED4BE7770218}"
+EndProject
 Global
 	GlobalSection(SolutionConfigurationPlatforms) = preSolution
 		Debug|Any CPU = Debug|Any CPU
@@ -14,5 +18,13 @@ Global
 		{7E0140F7-A3D3-4D2F-A5B7-7C8FA5617CB8}.Debug|Any CPU.Build.0 = Debug|Any CPU
 		{7E0140F7-A3D3-4D2F-A5B7-7C8FA5617CB8}.Release|Any CPU.ActiveCfg = Release|Any CPU
 		{7E0140F7-A3D3-4D2F-A5B7-7C8FA5617CB8}.Release|Any CPU.Build.0 = Release|Any CPU
+		{F29963F2-563D-4401-8346-55AB63379732}.Debug|Any CPU.ActiveCfg = Debug|Any CPU
+		{F29963F2-563D-4401-8346-55AB63379732}.Debug|Any CPU.Build.0 = Debug|Any CPU
+		{F29963F2-563D-4401-8346-55AB63379732}.Release|Any CPU.ActiveCfg = Release|Any CPU
+		{F29963F2-563D-4401-8346-55AB63379732}.Release|Any CPU.Build.0 = Release|Any CPU
+		{9B265BE5-4149-4D91-9587-ED4BE7770218}.Debug|Any CPU.ActiveCfg = Debug|Any CPU
+		{9B265BE5-4149-4D91-9587-ED4BE7770218}.Debug|Any CPU.Build.0 = Debug|Any CPU
+		{9B265BE5-4149-4D91-9587-ED4BE7770218}.Release|Any CPU.ActiveCfg = Release|Any CPU
+		{9B265BE5-4149-4D91-9587-ED4BE7770218}.Release|Any CPU.Build.0 = Release|Any CPU
 	EndGlobalSection
 EndGlobal

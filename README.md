@@ -1,6 +1,6 @@
 # 荣耀控制中心
 
-这是一个原生 Windows WinUI 3 / Windows App SDK 项目，不是 PowerShell 脚本或 WPF 仿制界面。它通过荣耀已验证的 ACPI-WMI 通道控制智能充电，并提供性能模式的查询和受确认保护的写入。
+这是一个 Windows 11 x64 的 WinUI 3 应用。普通权限界面保存期望配置并读取服务看到的真实状态；独立 Windows 服务通过荣耀 ACPI-WMI 通道回读和校正充电阈值、性能模式。
 
 ## 项目结构
 
@@ -9,61 +9,58 @@ HonorControl.sln
 src/HonorControl/
   App.xaml                         WinUI 3 应用资源
   MainWindow.xaml                  Fluent 主窗口与 Mica 系统材质
-  ViewModels/MainViewModel.cs      UI 状态、前置条件和操作编排
-  Services/OemWmiClient.cs         OemWMIMethod WMI 协议实现
-  Services/SystemPowerService.cs   Windows AC/电量状态读取
+  ViewModels/MainViewModel.cs      期望配置编辑与服务状态展示
+  Services/ServiceClient.cs        本机管道客户端
   Services/TrayIconController.cs   原生 Win32 托盘与窗口生命周期
   Assets/HonorControl.ico          应用和托盘多尺寸图标
-  Models/                          充电阈值、性能模式模型
-  app.manifest                     强制 UAC 管理员权限
+src/HonorControl.Contracts/         界面与服务的版本化通信契约
+src/HonorControl.Service/           Windows 服务、配置协调、WMI 与电源方案
+installer/                          在线安装器与设备/依赖预检
 ```
 
 ## 打开和构建
 
-使用 Visual Studio 2022，并安装“.NET 桌面开发”工作负载、.NET 8 SDK 和 Windows App SDK 支持，打开 `HonorControl.sln` 后构建 Release/x64。项目目标为 `net8.0-windows10.0.22000.0`（Windows 11），首次构建会还原 `Microsoft.WindowsAppSDK` 与 `Microsoft.Management.Infrastructure` 包，生成 `HonorControl.exe`。
+使用 Visual Studio 2022、.NET SDK 8.0.408、Windows App SDK 及 Inno Setup 构建。解决方案包含界面、通信契约和服务；单独运行 `HonorControl.exe` 不能提供控制功能，需安装并启动服务。
 
-仓库通过 `global.json` 固定使用 .NET SDK `8.0.408`，避免被机器上更高版本的 SDK 自动选中；项目使用 Windows App SDK `2.4.0`，并以 2.x 运行时包族作为轻量版的兼容基线。
+仓库通过 `global.json` 固定 .NET SDK `8.0.408`；界面使用 Windows App SDK `2.4.0`。
 
-当前使用下述 GitHub Actions 工作流构建，不再使用 Docker，也不要求工作站安装本地编译工具链。WinUI、UAC 和荣耀 ACPI-WMI 行为仍需下载产物后在宿主 Windows 上验证；构建成功不等于界面或硬件验证通过。首次运行会出现 UAC 提示，这是 BIOS WMI 接口的必要权限。
+GitHub Actions 负责发布和打包。安装器要求管理员权限以注册服务；日常界面以普通用户权限运行。CI 编译成功不等于目标机器上的安装、界面、WMI 或服务验证通过。
 
 ## GitHub Actions 构建
 
 仓库包含 `.github/workflows/build-windows.yml`。推送 `src/HonorControl/`、解决方案或该工作流的改动后会自动构建；也可在 GitHub 的 **Actions → Build Honor Control → Run workflow** 手动触发。
 
-工作流在同一个 GitHub Windows runner 上只还原一次 .NET 8 和 Windows App SDK 依赖，再使用 Visual Studio 的 `MSBuild.exe`（含 Windows App SDK 生成 PRI 所需的 Appx 打包任务）依次发布两个 `win-x64` artifact；它不再通过矩阵启动两套完整构建，并会检查两份 `runtimeconfig` 的部署类型以及轻量版的 Windows App Runtime bootstrap 文件：
+工作流发布框架依赖版 WinUI 程序与服务，编译 `HonorControl-Setup-x64.exe`。安装包不包含 .NET Desktop Runtime 或 Windows App Runtime；安装前先检查 Windows 11 x64、荣耀厂商标识和 HWMI 只读回读，然后仅在缺少依赖时从微软官方下载 .NET 8 Desktop Runtime 及 Windows App Runtime 2.4。Windows App Runtime 检查以当前登录用户的包注册状态为准，避免把其他用户已安装误判为可用。下载的 .NET 安装器校验官方 SHA-512，两者均校验微软数字签名。网络或校验失败会阻止应用文件安装。
 
-- `HonorControl-win-x64`：便携版，包含 .NET 8 与 Windows App SDK 运行时；下载并解压后可直接运行。
-- `HonorControl-win-x64-lightweight`：轻量版，不携带上述两套运行时；目标电脑必须预先安装 x64 的 **.NET 8 Desktop Runtime**，以及满足应用依赖版本的 **`Microsoft.WindowsAppRuntime.2` 运行时包（基线为 2.4.0）**。
-
-无论选择哪个版本，都应完整解压 artifact，并保留 `HonorControl.exe` 同目录的 DLL、PRI 和原生运行时文件。
-
-当前工作流不会发布 GitHub Release，也没有代码签名。未签名的自包含 exe 可能触发 Windows SmartScreen；如需面向外部分发，应另行配置代码签名证书与受保护的 GitHub Actions secret。
+工作流尚未发布 GitHub Release，也没有代码签名。面向外部分发前，需签名安装器、界面和服务，并在目标荣耀电脑上完成安装/升级/卸载与硬件验证。升级前会备份旧安装，安装失败时尝试恢复文件和服务；这一恢复流程尚未经真实升级验证，不能视为事务性回滚。
 
 ## 已实现的控制行为
 
-- 启动预检：展示荣耀 HWMI 接口、AC 供电和电池电量；各功能单独判定可用性。
+- 服务启动后独立回读硬件状态；界面只显示服务快照和已保存的期望配置，不直接调用 WMI。
+- 保存配置会唤醒服务；开启“开机自动维护配置”后，服务在启动和运行期间周期性比对，只有不一致时才尝试写入并回读验证。
+- 检测到荣耀电脑管家交互进程时，服务只读；电脑管家关闭后继续处理等待中的配置。连续写入失败会暂停该项校正，直至再次保存配置。
 - 智能充电开启：发送 `0x1003`，载荷 `{40, 70}`；成功后发送 `0x1103` 回读，并明确比较请求与实际阈值。
 - 关闭充电限制：发送 `0x1003`，载荷 `{0, 100}`；同样回读并比较。若不符，不会宣称设置成功，也不会对未识别机型盲发 Linux 专用 quirk。
 - 自定义阈值：通过 0–100% 下拉框选择，仅接受 `0 <= start < end <= 100`；不符合条件的选项会禁用。
 - 性能状态：以 `0x0E04` 读取当前模式，同时读取 `0x0802`、`0x3C06` 和 `0x0902` 并保留诊断响应。
-- 性能写入：智能模式发送 `0x0C07` + payload `0`，高能模式发送 payload `1`。仅在当前固件模式可识别、接通 AC、电量至少 20%、对应 Windows 电源计划可用时启用；确认后立即重新检查，通过 `0x0E04` 回读模式并验证活动电源计划。
+- 性能写入由服务执行：智能模式发送 `0x0C07` + payload `0`，高能模式发送 payload `1`；写前复核 AC、电量至少 20%、固件模式和目标电源方案，写后回读固件与 Windows 电源方案。
 
 ## 交互与视觉设计
 
 - 设备概览统一展示充电管理和性能模式；外观、后台行为和故障排查统一收纳到设置页。
-- 启动和窗口激活时自动读取状态，窗口可见且未最小化时每 15 秒更新；后台读取保留尚未应用的选择和输入。
+- 界面启动和窗口激活时获取服务快照，窗口可见且未最小化时每 15 秒更新；服务不依赖窗口或托盘持续运行。
 - 页面共享相同的内容宽度、间距、卡片、选择项和操作按钮规格，并使用 Segoe Fluent 图标建立清晰层级。
-- 日常页面只显示当前状态、可操作原因和验证结果；命令号、候选实例、HRESULT 与原始返回仅在“设置 → 故障排查”中显示。
-- 智能充电写入后回读实际阈值；性能模式保留实验性提示和二次确认，不把无法回读的模式请求描述成已验证切换。
+- 页面明确区分期望配置和服务回读的实际状态；保存成功不表示硬件已同步。
+- 性能配置保留风险提示和二次确认；故障排查显示服务报告的读取、校正错误。
 - 设置页支持跟随系统、浅色和深色主题，以及“关闭窗口时驻留托盘”；偏好保存在当前用户的 `%LocalAppData%\HonorControl\settings.json`。
 - 系统托盘使用 Windows 原生 `Shell_NotifyIcon`：支持重新打开、显式退出、首次驻留提示和 Explorer 重启后的图标恢复，不依赖第三方托盘组件。
 
-当前程序仍采用单进程管理员权限模型。启用“关闭窗口时驻留托盘”后，管理员进程会继续在后台运行，必须通过托盘菜单“退出”才能完全结束；长期方案应考虑把普通权限界面与按需提权的硬件控制进程拆分。
+服务以 LocalSystem 运行，配置保存在仅 SYSTEM/管理员可写的 `%ProgramData%\HonorControl\service.json`。首次从本机活动控制台连接的 Windows 用户成为配置拥有者；之后仅该用户可通过本机管道读写服务配置。关闭界面或托盘退出不会停止服务。
 
 所有请求固定为 64 字节，通过 Windows CIM/MI 调用 `root\\wmi:OemWMIMethod` 的 `ACPI\PNP0C14\HWMI_0` 实例及 `OemWMIfun` 方法；这与研究阶段成功的 `Get-CimInstance` / `Invoke-CimMethod` 路径一致。项目不复制、加载或分发荣耀 DLL。
 
 ## 已知风险与验证边界
 
-智能充电的读写协议已有实测。性能模式 SET 的命令和 payload 来自逆向结论，尚未进行写入实测；模式 1/2 的中文语义、电脑管家电源计划、风扇及 GPU 联动均不能由本程序的单个 BIOS 命令证明。程序因此保留警告、二次确认、写入前即时复核和原始响应。首次切换应在 AC 供电、电量充足且适配器功率符合机型要求时进行，随后检查荣耀电脑管家、风扇和功耗行为。
+智能充电的读写协议已有实测。性能模式 SET 的命令和 payload 来自逆向结论，尚未进行写入实测；模式 1/2 的中文语义、电脑管家电源计划、风扇及 GPU 联动均不能由单个 BIOS 命令证明。服务在写入前复核，并在失败时尝试回滚；首次切换仍需在目标机观察风扇、功耗和电脑管家行为。
 
 荣耀电脑管家可能在重启、插拔电源或服务恢复时重新下发其记忆的配置。本项目不写入电脑管家的注册表设置，也不操作风扇或 GPU 模式。性能切换会同步已有的 Windows 电源计划（智能对应平衡，高能对应 Honor Performance），失败时尝试回滚；不会自动创建或重置电源计划。读取失败与目标计划不存在会分别提示。

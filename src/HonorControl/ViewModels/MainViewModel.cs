@@ -1,706 +1,245 @@
-using System.Collections.ObjectModel;
-using System.Text;
-using Microsoft.UI.Xaml.Controls;
-using HonorControl.Models;
+using HonorControl.Contracts;
 using HonorControl.Services;
+using Microsoft.UI.Xaml.Controls;
 
 namespace HonorControl.ViewModels;
 
 public sealed class MainViewModel : ViewModelBase
 {
-    private readonly OemWmiClient client = new();
-    private readonly SystemPowerService systemPower = new();
-    private readonly PowerSchemeService powerSchemes = new();
-    private string chargeStatus = "正在检查充电策略…";
-    private string connectionTitle = "正在检查设备接口";
-    private string deviceSummary = "请稍候。";
-    private string powerSummary = "电源状态未知";
-    private string chargeAvailabilityText = "检查中";
-    private string performanceRequirementText = "正在检查性能模式前置条件。";
-    private string currentPerformanceModeText = "当前模式未知";
-    private string currentPowerPlanText = "Windows 电源方案未知";
-    private string pendingChangeTitle = "尚未选择性能模式";
-    private string pendingChangeDetail = "完成设备检查后可选择并应用模式。";
-    private TaskCompletionSource? refreshFinished;
-    private string operationTitle = "准备就绪";
-    private string operationStatus = string.Empty;
-    private string diagnosticDetails = "尚未获得诊断信息。";
+    private readonly ServiceClient service = new();
+    private ServiceSnapshot? snapshot;
+    private bool loaded;
+    private bool busy;
+    private bool refreshing;
+    private int selectedChargePreset = 1;
+    private int selectedPerformanceMode = 1;
     private string customChargeStart = "40";
     private string customChargeEnd = "70";
-    private string customChargeValidation = "恢复值须低于停止值。";
-    private InfoBarSeverity connectionSeverity = InfoBarSeverity.Informational;
-    private InfoBarSeverity chargeAvailabilitySeverity = InfoBarSeverity.Informational;
-    private InfoBarSeverity performanceRequirementSeverity = InfoBarSeverity.Informational;
+    private string operationTitle = string.Empty;
+    private string operationStatus = string.Empty;
     private InfoBarSeverity operationSeverity = InfoBarSeverity.Informational;
-    private InfoBarSeverity customChargeValidationSeverity = InfoBarSeverity.Informational;
-    private bool isBusy;
-    private bool isRefreshing;
-    private bool chargeSupported;
-    private bool performanceSupported;
-    private bool? isOnAcPower;
-    private int? batteryPercent;
-    private int? currentPerformanceMode;
-    private bool balancedPowerPlanAvailable;
-    private bool powerSchemesReadable;
-    private bool honorPerformancePlanAvailable;
     private bool hasOperationStatus;
-    private int selectedChargePreset;
-    private int selectedPerformanceMode = 1;
+    private string? connectionError;
 
-    public ObservableCollection<ActivityRecord> ActivityRecords { get; } = new();
+    public bool IsBusy => busy;
+    public bool IsRefreshing => refreshing;
+    public bool HasOperationStatus => hasOperationStatus;
+    public string OperationTitle => operationTitle;
+    public string OperationStatus => operationStatus;
+    public InfoBarSeverity OperationSeverity => operationSeverity;
+    public bool AutoReconcileEnabled => snapshot?.Desired.AutoReconcile == true;
+    public bool IsServiceAvailable => snapshot != null && connectionError == null;
+    public string AutoReconcileHint => snapshot == null
+        ? "无法连接后台服务。"
+        : AutoReconcileEnabled ? "服务将在开机后和运行中持续校正配置。" : "关闭后，服务仅在保存配置时尝试应用。";
 
-    public string ChargeStatus { get => chargeStatus; private set { chargeStatus = value; OnPropertyChanged(); } }
-    public string ConnectionTitle { get => connectionTitle; private set { connectionTitle = value; OnPropertyChanged(); } }
-    public string DeviceSummary { get => deviceSummary; private set { deviceSummary = value; OnPropertyChanged(); } }
-    public string PowerSummary { get => powerSummary; private set { powerSummary = value; OnPropertyChanged(); } }
-    public string ChargeAvailabilityText { get => chargeAvailabilityText; private set { chargeAvailabilityText = value; OnPropertyChanged(); } }
-    public string PerformanceRequirementText { get => performanceRequirementText; private set { performanceRequirementText = value; OnPropertyChanged(); } }
-    public string CurrentPerformanceModeText { get => currentPerformanceModeText; private set { currentPerformanceModeText = value; OnPropertyChanged(); } }
-    public string CurrentPowerPlanText { get => currentPowerPlanText; private set { currentPowerPlanText = value; OnPropertyChanged(); } }
-    public string PendingChangeTitle { get => pendingChangeTitle; private set { pendingChangeTitle = value; OnPropertyChanged(); } }
-    public string PendingChangeDetail { get => pendingChangeDetail; private set { pendingChangeDetail = value; OnPropertyChanged(); } }
-    public string OperationTitle { get => operationTitle; private set { operationTitle = value; OnPropertyChanged(); } }
-    public string OperationStatus { get => operationStatus; private set { operationStatus = value; OnPropertyChanged(); } }
-    public string DiagnosticDetails { get => diagnosticDetails; private set { diagnosticDetails = value; OnPropertyChanged(); } }
-    public InfoBarSeverity ConnectionSeverity { get => connectionSeverity; private set { connectionSeverity = value; OnPropertyChanged(); } }
-    public InfoBarSeverity ChargeAvailabilitySeverity { get => chargeAvailabilitySeverity; private set { chargeAvailabilitySeverity = value; OnPropertyChanged(); } }
-    public InfoBarSeverity PerformanceRequirementSeverity { get => performanceRequirementSeverity; private set { performanceRequirementSeverity = value; OnPropertyChanged(); } }
-    public InfoBarSeverity OperationSeverity { get => operationSeverity; private set { operationSeverity = value; OnPropertyChanged(); } }
-    public InfoBarSeverity CustomChargeValidationSeverity { get => customChargeValidationSeverity; private set { customChargeValidationSeverity = value; OnPropertyChanged(); } }
-    public bool HasOperationStatus { get => hasOperationStatus; private set { hasOperationStatus = value; OnPropertyChanged(); } }
+    public string ConnectionTitle => connectionError != null ? "后台服务不可用"
+        : snapshot?.Actual.ServiceError != null ? "后台服务读取失败"
+        : snapshot?.Actual.PcManagerOpen == true ? "荣耀电脑管家已开启 · 服务只读"
+        : snapshot == null ? "正在连接后台服务" : "后台服务已连接";
+    public string DeviceSummary => connectionError ?? (snapshot?.Actual.PcManagerOpen == true
+        ? "当前只回读设备状态；已保存的配置将在电脑管家关闭后继续应用。"
+        : snapshot?.Actual.ServiceError ?? "硬件状态由后台服务读取和维护。");
+    public InfoBarSeverity ConnectionSeverity => connectionError != null ? InfoBarSeverity.Error
+        : snapshot?.Actual.ServiceError != null ? InfoBarSeverity.Error
+        : snapshot?.Actual.PcManagerOpen == true ? InfoBarSeverity.Warning : InfoBarSeverity.Informational;
+    public string PowerSummary => snapshot?.Actual is { } actual
+        ? (actual.IsOnAcPower == true ? "已接通 AC" : actual.IsOnAcPower == false ? "未接通 AC" : "AC 状态未知")
+          + " · " + (actual.BatteryPercent.HasValue ? $"电池 {actual.BatteryPercent}%" : "电量未知")
+        : "正在读取电源状态";
+    public string ChargeStatus => snapshot?.Actual is { } actual
+        ? actual.ChargeStart.HasValue && actual.ChargeEnd.HasValue
+            ? $"设备实际阈值：{actual.ChargeStart}%–{actual.ChargeEnd}%"
+            : "设备实际阈值不可用：" + (actual.ChargeError ?? "尚未读取")
+        : "正在读取设备实际阈值";
+    public string ChargeDesiredStatus => snapshot?.Desired is { ChargeStart: int start, ChargeEnd: int end }
+        ? $"已保存的期望阈值：{start}%–{end}%" : "尚未保存期望阈值";
+    public string CurrentPerformanceModeText => snapshot?.Actual.PerformanceMode switch
+    {
+        1 => "设备实际模式 · 智能",
+        2 => "设备实际模式 · 高能",
+        _ => "设备实际模式 · 未知"
+    };
+    public string CurrentPowerPlanText => "Windows 电源方案 · " + (snapshot?.Actual.PowerSchemeName ?? "未知");
+    public string PerformanceDesiredStatus => snapshot?.Desired.PerformanceMode switch
+    {
+        1 => "已保存的期望模式：智能",
+        2 => "已保存的期望模式：高能",
+        _ => "尚未保存期望模式"
+    };
+    public string PerformanceRequirementText => !IsServiceAvailable ? "后台服务不可用，无法保存配置。"
+        : snapshot?.Actual.PcManagerOpen == true
+        ? "电脑管家运行期间服务只读；保存的配置会等待其关闭。"
+        : snapshot?.Actual.PerformanceError is { } error ? "性能状态：" + error
+        : selectedPerformanceMode == 2 && snapshot?.Actual.HighPerformanceSupported != true
+        ? "设备尚未报告高能模式能力；配置可保存，服务当前不会写入。"
+        : selectedPerformanceMode == 2 && snapshot?.Actual.HonorPerformancePlanAvailable != true
+        ? "Honor Performance 电源方案不可用；配置可保存，服务当前不会写入。"
+        : selectedPerformanceMode == 1 && snapshot?.Actual.BalancedPlanAvailable != true
+        ? "Windows 平衡电源方案不可用；配置可保存，服务当前不会写入。"
+        : snapshot?.Actual.IsOnAcPower != true ? "保存后，服务会等待 AC 供电再应用。"
+        : snapshot?.Actual.BatteryPercent is not >= 20 ? "保存后，服务会等待电量达到 20% 再应用。"
+        : "保存配置后由后台服务复核并同步硬件与电源方案。";
+    public string DiagnosticDetails => snapshot == null ? connectionError ?? "尚未收到服务状态。"
+        : $"服务检查时间：{snapshot.Actual.CheckedAt:O}\n"
+          + $"期望阈值：{snapshot.Desired.ChargeStart}%–{snapshot.Desired.ChargeEnd}%；期望性能模式：{snapshot.Desired.PerformanceMode}\n"
+          + $"实际阈值：{snapshot.Actual.ChargeStart}%–{snapshot.Actual.ChargeEnd}%；实际性能模式：{snapshot.Actual.PerformanceMode}\n"
+          + $"电脑管家运行：{snapshot.Actual.PcManagerOpen}；开机自动维护：{snapshot.Desired.AutoReconcile}\n"
+          + $"充电错误：{snapshot.Actual.ChargeError ?? "无"}\n性能错误：{snapshot.Actual.PerformanceError ?? "无"}\n服务错误：{snapshot.Actual.ServiceError ?? "无"}";
 
     public string CustomChargeStart
     {
         get => customChargeStart;
-        set { customChargeStart = value; ValidateCustomThreshold(); OnPropertyChanged(); }
+        set { customChargeStart = value; OnPropertyChanged(); OnPropertyChanged(nameof(ChargeModeHint)); OnPropertyChanged(nameof(CanApplySelectedChargeMode)); }
     }
-
     public string CustomChargeEnd
     {
         get => customChargeEnd;
-        set { customChargeEnd = value; ValidateCustomThreshold(); OnPropertyChanged(); }
+        set { customChargeEnd = value; OnPropertyChanged(); OnPropertyChanged(nameof(ChargeModeHint)); OnPropertyChanged(nameof(CanApplySelectedChargeMode)); }
     }
-
-    public string CustomChargeValidation { get => customChargeValidation; private set { customChargeValidation = value; OnPropertyChanged(); } }
-
-    public bool IsBusy
-    {
-        get => isBusy;
-        private set
-        {
-            isBusy = value;
-            OnPropertyChanged();
-            NotifyControlStateChanged();
-        }
-    }
-
-    public bool IsRefreshing
-    {
-        get => isRefreshing;
-        private set
-        {
-            isRefreshing = value;
-            OnPropertyChanged();
-            // Keep buttons and selection visuals stable during background reads.
-        }
-    }
-    public bool CanConfigureCharge => chargeSupported && !IsBusy;
-    public bool CanApplySelectedChargePreset => CanConfigureCharge && selectedChargePreset is 1 or 2;
-    public bool CanApplySelectedChargeMode => CanConfigureCharge && (selectedChargePreset is 1 or 2 || selectedChargePreset == 0 && IsCustomThresholdValid());
-    public bool CanConfigurePerformance => performanceSupported && currentPerformanceMode is 1 or 2 && isOnAcPower == true && batteryPercent.HasValue && batteryPercent.Value >= 20 && !IsBusy;
-    public bool CanSelectHighPerformance => CanConfigurePerformance && honorPerformancePlanAvailable;
-    public bool CanApplyPerformance => CanConfigurePerformance && (selectedPerformanceMode == 1 ? balancedPowerPlanAvailable : honorPerformancePlanAvailable);
-    public int SelectedChargePresetIndex
-    {
-        get => selectedChargePreset - 1;
-        set => SelectChargePreset(value + 1);
-    }
-    public string SelectedChargePresetLabel => selectedChargePreset == 1 ? "电池保护 · 40%–70%" : selectedChargePreset == 2 ? "完整续航 · 0%–100%" : "自定义充电阈值";
-    public string SelectedChargePresetDetail => selectedChargePreset == 1 ? "适合长期接通电源使用，减少电池长期满电停留。" : selectedChargePreset == 2 ? "允许充至 100%，适合即将移动使用的场景。" : CustomChargeValidation;
-    public string ChargeModeHint => selectedChargePreset == 0 ? CustomChargeValidation : string.Empty;
-    public string ChargeActionLabel => selectedChargePreset == 0 ? "应用自定义阈值" : "应用充电模式";
+    public int SelectedChargePresetIndex => selectedChargePreset - 1;
+    public string ChargeModeHint => selectedChargePreset == 0 && !TryGetCustomThreshold(out _, out _)
+        ? "恢复值须低于停止值。" : string.Empty;
+    public string ChargeActionLabel => "保存充电配置";
+    public bool CanConfigureCharge => IsServiceAvailable && !busy;
+    public bool CanApplySelectedChargeMode => CanConfigureCharge
+        && (selectedChargePreset is 1 or 2 || selectedChargePreset == 0 && TryGetCustomThreshold(out _, out _));
     public int SelectedPerformanceMode => selectedPerformanceMode;
     public string SelectedPerformanceModeLabel => selectedPerformanceMode == 2 ? "高能模式" : "智能模式";
+    public bool CanConfigurePerformance => IsServiceAvailable && !busy;
+    public bool CanSelectHighPerformance => CanConfigurePerformance;
+    public bool CanApplyPerformance => CanConfigurePerformance;
 
     public async Task RefreshAsync(bool preserveSelection = false)
     {
-        if (IsBusy || IsRefreshing) return;
-
-        // Keep the last snapshot on screen while background reads are in flight.
-        refreshFinished = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
-        IsRefreshing = true;
+        if (busy || refreshing) return;
+        refreshing = true;
+        OnPropertyChanged(nameof(IsRefreshing));
         try
         {
-            SystemPowerSnapshot power = await Task.Run(systemPower.GetSnapshot);
-            ApplyPowerSnapshot(power);
-
-            Exception? chargeError = null;
-            Exception? performanceError = null;
-            Exception? powerSchemeError = null;
-            ChargeThreshold? threshold = null;
-            PerformanceStatus? performance = null;
-            PowerSchemeStatus? schemes = null;
-            try { threshold = await Task.Run(client.GetChargeThreshold); }
-            catch (Exception exception) { chargeError = exception; }
-            try { performance = await Task.Run(client.GetPerformanceStatus); }
-            catch (Exception exception) { performanceError = exception; }
-            try { schemes = await Task.Run(powerSchemes.GetStatus); }
-            catch (Exception exception) { powerSchemeError = exception; }
-
-            chargeSupported = threshold != null;
-            performanceSupported = performance != null;
-            ApplyPerformanceState(performance, schemes, preserveSelection);
-            if (threshold != null)
-            {
-                ChargeStatus = FormatChargeThreshold(threshold);
-                if (!preserveSelection)
-                {
-                    CustomChargeStart = threshold.Start.ToString();
-                    CustomChargeEnd = threshold.End.ToString();
-                    SelectChargePreset(PresetFromThreshold(threshold));
-                }
-                ChargeAvailabilityText = "可用 · 更改后会自动验证实际值";
-                ChargeAvailabilitySeverity = InfoBarSeverity.Success;
-            }
-            else
-            {
-                ChargeStatus = "无法读取充电阈值。";
-                ChargeAvailabilityText = "无法读取充电策略，可在设置中查看诊断。";
-                ChargeAvailabilitySeverity = InfoBarSeverity.Error;
-            }
-
-            UpdatePerformanceRequirements();
-            UpdateDeviceSummary(chargeError, performanceError);
-            DiagnosticDetails = BuildDiagnostics(power, threshold, performance, schemes, chargeError, performanceError, powerSchemeError);
+            ServiceSnapshot latest = await service.GetStateAsync();
+            connectionError = null;
+            ApplySnapshot(latest, preserveSelection && loaded);
+            loaded = true;
         }
         catch (Exception exception)
         {
-            chargeSupported = false;
-            performanceSupported = false;
-            currentPerformanceMode = null;
-            balancedPowerPlanAvailable = false;
-            powerSchemesReadable = false;
-            honorPerformancePlanAvailable = false;
-            CurrentPerformanceModeText = "当前模式未知";
-            CurrentPowerPlanText = "Windows 电源方案未知";
-            ChargeStatus = "充电状态暂时不可用";
-            ConnectionTitle = "设备检查失败";
-            ConnectionSeverity = InfoBarSeverity.Error;
-            DeviceSummary = "无法读取系统电源或荣耀接口状态。";
-            ChargeAvailabilityText = "无法读取充电策略，可在设置中查看诊断。";
-            ChargeAvailabilitySeverity = InfoBarSeverity.Error;
-            PerformanceRequirementText = "无法读取性能控制状态，可在设置中查看诊断。";
-            PerformanceRequirementSeverity = InfoBarSeverity.Error;
-            DiagnosticDetails = BuildOperationFailureDiagnostics("设备检查", exception);
+            connectionError = exception.Message;
+            RaiseState();
         }
         finally
         {
-            IsRefreshing = false;
-            refreshFinished?.TrySetResult();
+            refreshing = false;
+            OnPropertyChanged(nameof(IsRefreshing));
         }
     }
-
-    private async Task WaitForRefreshAsync()
-    {
-        while (IsRefreshing) await (refreshFinished?.Task ?? Task.CompletedTask);
-    }
-
-    public Task SetSmartChargeAsync() => SetChargeThresholdAsync(40, 70, "已选择电池保护", "正在下发 40%–70% 充电阈值。", "电池保护已写入并验证：{0}%–{1}%。");
-    public Task DisableChargeLimitAsync() => SetChargeThresholdAsync(0, 100, "已选择完整续航", "正在下发 0%–100% 充电阈值。", "完整续航已写入并验证：{0}%–{1}%。");
-
-    public Task ApplySelectedChargePresetAsync()
-    {
-        if (!CanApplySelectedChargePreset) return Task.CompletedTask;
-        return selectedChargePreset == 1 ? SetSmartChargeAsync() : DisableChargeLimitAsync();
-    }
-
-    public Task ApplySelectedChargeModeAsync() => selectedChargePreset == 0
-        ? SetCustomChargeAsync()
-        : ApplySelectedChargePresetAsync();
 
     public void SelectChargePreset(int preset)
     {
-        if (preset is < 0 or > 2 || selectedChargePreset == preset) return;
+        if (preset is < 0 or > 2 || preset == selectedChargePreset) return;
         selectedChargePreset = preset;
         OnPropertyChanged(nameof(SelectedChargePresetIndex));
-        OnPropertyChanged(nameof(SelectedChargePresetLabel));
-        OnPropertyChanged(nameof(SelectedChargePresetDetail));
-        OnPropertyChanged(nameof(CanApplySelectedChargePreset));
-        OnPropertyChanged(nameof(CanApplySelectedChargeMode));
         OnPropertyChanged(nameof(ChargeModeHint));
-        OnPropertyChanged(nameof(ChargeActionLabel));
-    }
-
-    public async Task SetCustomChargeAsync()
-    {
-        await WaitForRefreshAsync();
-        if (!TryGetCustomThreshold(out int start, out int end)) return;
-        await SetChargeThresholdAsync(start, end, "正在应用自定义阈值", "正在下发自定义充电阈值。", "自定义阈值已写入并验证：{0}%–{1}%。");
-    }
-
-    public async Task SetPerformanceModeAsync()
-    {
-        await WaitForRefreshAsync();
-        if (!CanApplyPerformance) return;
-        int targetMode = selectedPerformanceMode;
-        string label = targetMode == 2 ? "高能模式" : "智能模式";
-        bool applyStarted = false;
-        BeginOperation("正在复核" + label, "正在重新读取供电、固件模式与 Windows 电源方案。", InfoBarSeverity.Informational);
-        try
-        {
-            var preflight = await Task.Run(() => (
-                Power: systemPower.GetSnapshot(),
-                Status: client.GetPerformanceStatus(),
-                Schemes: powerSchemes.GetStatus()));
-            if (!CanWritePerformance(preflight.Power, preflight.Status, preflight.Schemes, targetMode, out string reason))
-            {
-                ApplyPowerSnapshot(preflight.Power);
-                ApplyPerformanceState(preflight.Status, preflight.Schemes, true);
-                UpdatePerformanceRequirements();
-                FinishOperation("性能模式未写入", reason, InfoBarSeverity.Warning);
-                AddActivity("性能模式写入已取消：" + reason, true);
-                return;
-            }
-
-            OperationStatus = "正在同步固件模式与 Windows 电源方案。";
-            applyStarted = true;
-            var applied = await Task.Run(() => ApplyPerformanceMode(preflight.Status, preflight.Schemes, targetMode));
-            ApplyPowerSnapshot(preflight.Power);
-            ApplyPerformanceState(applied.Status, applied.Schemes, false);
-            UpdatePerformanceRequirements();
-            DiagnosticDetails = BuildPerformanceDiagnostics(applied.Status, applied.Schemes);
-            FinishOperation("性能模式已更新", "已通过 0x0E04 回读确认" + label + "，并验证 Windows 电源方案。", InfoBarSeverity.Success);
-            AddActivity("性能模式与 Windows 电源方案已同步：“" + label + "”。", false);
-        }
-        catch (Exception exception)
-        {
-            string diagnostics = BuildOperationFailureDiagnostics(applyStarted ? "性能模式同步" : "性能模式写入前复核", exception);
-            string reason = exception.GetBaseException().Message;
-            string failure = exception.InnerException == null ? exception.Message : reason + " " + exception.Message;
-            if (applyStarted)
-            {
-                try
-                {
-                    var finalState = await Task.Run(() => (
-                        Status: client.GetPerformanceStatus(),
-                        Schemes: powerSchemes.GetStatus()));
-                    ApplyPerformanceState(finalState.Status, finalState.Schemes, false);
-                    UpdatePerformanceRequirements();
-                    diagnostics += "\n\n失败后的实际状态：\n" + BuildPerformanceDiagnostics(finalState.Status, finalState.Schemes);
-                    FinishOperation("性能模式同步失败", failure + " 当前状态已重新读取。", InfoBarSeverity.Error);
-                }
-                catch (Exception refreshException)
-                {
-                    diagnostics += "\n\n失败后的状态回查也失败：\n" + FormatExceptionDiagnostics(refreshException);
-                    FinishOperation("性能模式同步失败", failure + " 最终状态未确认。", InfoBarSeverity.Error);
-                }
-                AddActivity("性能模式同步失败；已尝试回滚，请核对当前状态。", true);
-            }
-            else
-            {
-                FinishOperation("性能模式未写入", reason, InfoBarSeverity.Error);
-                AddActivity("性能模式写入前复核失败；未执行更改。", true);
-            }
-            DiagnosticDetails = diagnostics;
-        }
-        finally { IsBusy = false; }
+        OnPropertyChanged(nameof(CanApplySelectedChargeMode));
     }
 
     public void SelectPerformanceMode(int mode)
     {
-        if (mode is < 1 or > 2 || !CanConfigurePerformance || mode == 2 && !honorPerformancePlanAvailable) return;
+        if (mode is not (1 or 2) || mode == 2 && !CanSelectHighPerformance) return;
         selectedPerformanceMode = mode;
         OnPropertyChanged(nameof(SelectedPerformanceMode));
         OnPropertyChanged(nameof(SelectedPerformanceModeLabel));
-        PendingChangeTitle = "待应用：" + SelectedPerformanceModeLabel;
-        PendingChangeDetail = mode == 2
-            ? "同步固件高能状态与 Honor Performance 电源方案。"
-            : "同步固件智能状态与 Windows 平衡电源方案。";
-        UpdatePerformanceRequirements();
         OnPropertyChanged(nameof(CanApplyPerformance));
+        OnPropertyChanged(nameof(PerformanceRequirementText));
     }
 
-    public void SetCancelledStatus() => FinishOperation("已取消性能模式写入", "当前 BIOS 配置未改变。", InfoBarSeverity.Informational);
-
-    private async Task SetChargeThresholdAsync(int start, int end, string title, string detail, string successFormat)
+    public async Task ApplySelectedChargeModeAsync()
     {
-        await WaitForRefreshAsync();
-        if (!CanConfigureCharge)
-        {
-            FinishOperation("充电模式未写入", "充电状态不可用。", InfoBarSeverity.Warning);
-            return;
-        }
-        BeginOperation(title, "1/2 " + detail, InfoBarSeverity.Informational);
+        if (!CanApplySelectedChargeMode) return;
+        int start = selectedChargePreset == 1 ? 40 : selectedChargePreset == 2 ? 0 : int.Parse(customChargeStart);
+        int end = selectedChargePreset == 1 ? 70 : selectedChargePreset == 2 ? 100 : int.Parse(customChargeEnd);
+        await SaveAsync(() => service.SaveChargeAsync(start, end), "充电配置已保存");
+    }
+
+    public async Task SetPerformanceModeAsync()
+    {
+        if (!CanApplyPerformance) return;
+        await SaveAsync(() => service.SavePerformanceAsync(selectedPerformanceMode), "性能配置已保存");
+    }
+
+    public async Task SetAutoReconcileAsync(bool enabled) =>
+        await SaveAsync(() => service.SetAutoReconcileAsync(enabled), "开机维护设置已保存");
+
+    public void SetCancelledStatus() => SetOperation("已取消", "配置没有改变。", InfoBarSeverity.Informational);
+
+    private async Task SaveAsync(Func<Task<ServiceSnapshot>> save, string title)
+    {
+        if (busy) return;
+        busy = true;
+        RaiseState();
         try
         {
-            ChargeThreshold threshold = await Task.Run(() => client.SetChargeThreshold(start, end));
-            ChargeStatus = FormatChargeThreshold(threshold);
-            CustomChargeStart = threshold.Start.ToString();
-            CustomChargeEnd = threshold.End.ToString();
-            SelectChargePreset(PresetFromThreshold(threshold));
-            if (threshold.Start != start || threshold.End != end)
-            {
-                FinishOperation("设备采用了不同的充电值", "请求 " + start + "%–" + end + "%；实际为 " + threshold.Start + "%–" + threshold.End + "% 。", InfoBarSeverity.Warning);
-                AddActivity("充电策略回读不符：请求 " + start + "%–" + end + "%；实际 " + threshold.Start + "%–" + threshold.End + "% 。", true);
-                return;
-            }
-            FinishOperation("充电策略已更新", "已从设备回读并确认 " + threshold.Start + "%–" + threshold.End + "% 。", InfoBarSeverity.Success);
-            AddActivity(string.Format(successFormat, threshold.Start, threshold.End), false);
+            ServiceSnapshot updated = await save();
+            connectionError = null;
+            ApplySnapshot(updated, true);
+            SetOperation(title, updated.Actual.PcManagerOpen
+                ? "电脑管家运行中，服务只读；配置将在其关闭后应用。"
+                : "后台服务已收到配置，将回读并校正实际状态。", InfoBarSeverity.Success);
         }
         catch (Exception exception)
         {
-            DiagnosticDetails = BuildOperationFailureDiagnostics("充电策略设置", exception);
-            FinishOperation("充电策略设置失败", "设备没有接受请求，可在设置中查看诊断。", InfoBarSeverity.Error);
-            AddActivity("充电策略写入失败；请查看诊断页。", true);
+            SetOperation("配置保存失败", exception.Message, InfoBarSeverity.Error);
         }
-        finally { IsBusy = false; }
+        finally { busy = false; RaiseState(); }
     }
 
-    private void ApplyPowerSnapshot(SystemPowerSnapshot power)
+    private void ApplySnapshot(ServiceSnapshot latest, bool preserveSelection)
     {
-        isOnAcPower = power.IsOnAcPower;
-        batteryPercent = power.BatteryPercent;
-        string battery = power.BatteryPercent.HasValue ? $"电池 {power.BatteryPercent.Value}%" : "电池电量未知";
-        PowerSummary = power.IsOnAcPower == true ? "已接通 AC · " + battery : power.IsOnAcPower == false ? "未接通 AC · " + battery : "AC 状态未知 · " + battery;
+        snapshot = latest;
+        if (!preserveSelection)
+        {
+            int start = latest.Desired.ChargeStart ?? latest.Actual.ChargeStart ?? 40;
+            int end = latest.Desired.ChargeEnd ?? latest.Actual.ChargeEnd ?? 70;
+            customChargeStart = start.ToString();
+            customChargeEnd = end.ToString();
+            selectedChargePreset = start == 40 && end == 70 ? 1 : start == 0 && end == 100 ? 2 : 0;
+            selectedPerformanceMode = latest.Desired.PerformanceMode ?? latest.Actual.PerformanceMode ?? 1;
+        }
+        RaiseState();
     }
 
-    private void ApplyPerformanceState(PerformanceStatus? performance, PowerSchemeStatus? schemes, bool preserveSelection)
+    private bool TryGetCustomThreshold(out int start, out int end)
     {
-        currentPerformanceMode = performance?.CurrentMode;
-        CurrentPerformanceModeText = currentPerformanceMode switch
-        {
-            1 => "当前模式 · 智能",
-            2 => "当前模式 · 高能",
-            _ => "当前模式 · 无法识别"
-        };
-
-        powerSchemesReadable = schemes != null;
-        balancedPowerPlanAvailable = schemes?.Balanced != null;
-        honorPerformancePlanAvailable = schemes?.HonorPerformance != null;
-        CurrentPowerPlanText = schemes == null
-            ? "Windows 电源方案不可用"
-            : "Windows 电源方案 · " + schemes.Active.Name;
-
-        if (!preserveSelection && currentPerformanceMode is 1 or 2)
-        {
-            selectedPerformanceMode = currentPerformanceMode.Value;
-            OnPropertyChanged(nameof(SelectedPerformanceMode));
-            OnPropertyChanged(nameof(SelectedPerformanceModeLabel));
-        }
-        NotifyControlStateChanged();
+        bool startParsed = int.TryParse(customChargeStart, out start);
+        bool endParsed = int.TryParse(customChargeEnd, out end);
+        return startParsed && endParsed && start is >= 0 and <= 100
+            && end is >= 0 and <= 100 && start < end;
     }
 
-    private void UpdatePerformanceRequirements()
+    private void SetOperation(string title, string message, InfoBarSeverity severity)
     {
-        if (!performanceSupported)
-        {
-            PerformanceRequirementText = "此设备暂时无法使用性能模式。";
-            PerformanceRequirementSeverity = InfoBarSeverity.Error;
-            PendingChangeTitle = "性能模式不可用";
-            PendingChangeDetail = "可在设置中查看诊断信息。";
-        }
-        else if (currentPerformanceMode is not (1 or 2))
-        {
-            PerformanceRequirementText = "固件返回了无法识别的性能模式，已阻止写入。";
-            PerformanceRequirementSeverity = InfoBarSeverity.Error;
-            PendingChangeTitle = "当前模式无法识别";
-            PendingChangeDetail = "可在设置中查看 0x0E04 原始返回。";
-        }
-        else if (isOnAcPower != true)
-        {
-            PerformanceRequirementText = isOnAcPower == false ? "请接通电源后再切换模式。" : "无法确认供电状态，暂时不能切换。";
-            PerformanceRequirementSeverity = InfoBarSeverity.Warning;
-            PendingChangeTitle = "等待接通 AC 电源";
-            PendingChangeDetail = "接通电源后状态会自动更新。";
-        }
-        else if (!batteryPercent.HasValue || batteryPercent.Value < 20)
-        {
-            PerformanceRequirementText = batteryPercent.HasValue ? "当前电量 " + batteryPercent.Value + "% · 至少需要 20%" : "无法读取电量，暂时不能切换。";
-            PerformanceRequirementSeverity = InfoBarSeverity.Warning;
-            PendingChangeTitle = "等待电池状态满足条件";
-            PendingChangeDetail = "电量达到 20% 后状态会自动更新。";
-        }
-        else if (!powerSchemesReadable)
-        {
-            PerformanceRequirementText = "无法读取 Windows 电源方案，暂时不能同步性能模式。";
-            PerformanceRequirementSeverity = InfoBarSeverity.Error;
-            PendingChangeTitle = "电源方案读取失败";
-            PendingChangeDetail = "请在设置中查看诊断信息；读取失败不代表方案不存在。";
-        }
-        else if (!balancedPowerPlanAvailable && selectedPerformanceMode == 1)
-        {
-            PerformanceRequirementText = "未找到 Windows 平衡电源方案，暂时不能同步智能模式。";
-            PerformanceRequirementSeverity = InfoBarSeverity.Error;
-            PendingChangeTitle = "缺少平衡电源方案";
-            PendingChangeDetail = "请检查平衡电源方案是否存在；状态会自动更新。";
-        }
-        else if (!honorPerformancePlanAvailable && selectedPerformanceMode == 2)
-        {
-            PerformanceRequirementText = "未找到 Honor Performance 电源方案，暂时不能同步高能模式。";
-            PerformanceRequirementSeverity = InfoBarSeverity.Warning;
-            PendingChangeTitle = "高能模式暂不可用";
-            PendingChangeDetail = balancedPowerPlanAvailable
-                ? "可选择智能模式；高能模式需要 Honor Performance 电源方案。"
-                : "请检查 Honor Performance 电源方案是否存在。";
-            OnPropertyChanged(nameof(CanApplyPerformance));
-        }
-        else
-        {
-            PerformanceRequirementText = honorPerformancePlanAvailable && balancedPowerPlanAvailable
-                ? "已满足智能与高能模式切换条件"
-                : "已满足" + SelectedPerformanceModeLabel + "切换条件";
-            PerformanceRequirementSeverity = InfoBarSeverity.Success;
-            PendingChangeTitle = "待应用：" + SelectedPerformanceModeLabel;
-            PendingChangeDetail = selectedPerformanceMode == 2
-                ? "同步固件高能状态与 Honor Performance 电源方案。"
-                : "同步固件智能状态与 Windows 平衡电源方案。";
-        }
+        operationTitle = title;
+        operationStatus = message;
+        operationSeverity = severity;
+        hasOperationStatus = true;
+        OnPropertyChanged(nameof(OperationTitle));
+        OnPropertyChanged(nameof(OperationStatus));
+        OnPropertyChanged(nameof(OperationSeverity));
+        OnPropertyChanged(nameof(HasOperationStatus));
     }
 
-    private void UpdateDeviceSummary(Exception? chargeError, Exception? performanceError)
+    private void RaiseState()
     {
-        if (chargeSupported || performanceSupported)
+        foreach (string name in new[]
         {
-            ConnectionTitle = "荣耀硬件接口已连接";
-            ConnectionSeverity = InfoBarSeverity.Success;
-            DeviceSummary = $"充电控制：{(chargeSupported ? "可用" : "不可用")}；性能控制：{(performanceSupported ? "可用" : "不可用")}。";
-        }
-        else
-        {
-            ConnectionTitle = "荣耀硬件接口不可用";
-            ConnectionSeverity = InfoBarSeverity.Error;
-            DeviceSummary = "无法连接硬件控制接口，可在设置中查看诊断信息。";
-        }
-    }
-
-    private (PerformanceStatus Status, PowerSchemeStatus Schemes) ApplyPerformanceMode(
-        PerformanceStatus previousStatus,
-        PowerSchemeStatus previousSchemes,
-        int mode)
-    {
-        PowerSchemeInfo targetScheme = previousSchemes.GetTarget(mode)
-            ?? throw new InvalidOperationException(mode == 2
-                ? "未找到 Honor Performance 电源方案，未执行任何写入。"
-                : "未找到 Windows 平衡电源方案，未执行任何写入。");
-
-        int previousMode = previousStatus.CurrentMode;
-        Guid previousSchemeId = previousSchemes.Active.Id;
-        bool firmwareWriteAttempted = previousMode != mode;
-        bool schemeWriteAttempted = previousSchemeId != targetScheme.Id;
-
-        try
-        {
-            PerformanceStatus status = firmwareWriteAttempted
-                ? client.SetPerformanceMode(mode)
-                : client.GetPerformanceStatus();
-            if (schemeWriteAttempted) powerSchemes.SetActiveForMode(mode);
-            PowerSchemeStatus schemes = powerSchemes.GetStatus();
-            if (schemes.Active.Id != targetScheme.Id)
-                throw new InvalidOperationException($"Windows 电源方案回读不符：请求 {targetScheme.Id}，实际为 {schemes.Active.Id}。");
-            return (status, schemes);
-        }
-        catch (Exception exception)
-        {
-            List<string> rollback = new();
-            if (firmwareWriteAttempted && previousMode is 1 or 2)
-            {
-                try
-                {
-                    client.SetPerformanceMode(previousMode);
-                    rollback.Add("固件模式已恢复");
-                }
-                catch (Exception rollbackException)
-                {
-                    rollback.Add("固件模式恢复失败：" + rollbackException.Message);
-                }
-            }
-            if (schemeWriteAttempted)
-            {
-                try
-                {
-                    powerSchemes.SetActive(previousSchemeId);
-                    rollback.Add("Windows 电源方案已恢复");
-                }
-                catch (Exception rollbackException)
-                {
-                    rollback.Add("Windows 电源方案恢复失败：" + rollbackException.Message);
-                }
-            }
-
-            string rollbackSummary = rollback.Count == 0 ? "未发生需要回滚的更改" : string.Join("；", rollback);
-            throw new InvalidOperationException("性能模式同步失败；回滚结果：" + rollbackSummary + "。", exception);
-        }
-    }
-
-    private static string BuildDiagnostics(
-        SystemPowerSnapshot power,
-        ChargeThreshold? threshold,
-        PerformanceStatus? performance,
-        PowerSchemeStatus? schemes,
-        Exception? chargeError,
-        Exception? performanceError,
-        Exception? powerSchemeError)
-    {
-        string powerState = power.IsOnAcPower == true ? "AC 在线" : power.IsOnAcPower == false ? "AC 离线" : "AC 状态未知";
-        string charge = threshold != null
-            ? $"充电接口：可用；0x1103 回读阈值={threshold.Start}%–{threshold.End}%"
-            : "充电接口错误：\n" + (chargeError == null ? "未知" : FormatExceptionDiagnostics(chargeError));
-        string mode = performance == null
-            ? "性能接口错误：\n" + (performanceError == null ? "未知" : FormatExceptionDiagnostics(performanceError))
-            : BuildPerformanceDiagnostics(performance, schemes);
-        string planError = powerSchemeError == null ? string.Empty : "\n\nWindows 电源方案错误：\n" + FormatExceptionDiagnostics(powerSchemeError);
-        return "目标接口：root\\wmi / OemWMIMethod\n候选实例优先级：HWMI_0 → HWMI_1 → 其他活动实例\n" + powerState + "\n\n" + charge + "\n\n" + mode + planError;
-    }
-
-    private static string BuildPerformanceDiagnostics(PerformanceStatus performance, PowerSchemeStatus? schemes)
-    {
-        string currentMode = performance.CurrentMode switch { 1 => "智能", 2 => "高能", _ => "未知" };
-        string plan = schemes == null
-            ? "不可用"
-            : schemes.Active.Name + " (" + schemes.Active.Id + ")";
-        return "性能模式：" + currentMode
-            + "；0x0E04=" + performance.ModeStateQuery
-            + "；0x0802 遥测=" + performance.TelemetryQuery
-            + "；0x3C06 支持掩码=0x" + performance.SupportMask.ToString("X2")
-            + "，原始=" + performance.SupportQuery
-            + "（HUNTER=" + (performance.SupportsHunterMode ? "支持" : "不支持") + "）"
-            + "；0x0902 适配器电压=" + performance.AdapterVoltageMillivolts + "mV，原始=" + performance.AdapterQuery
-            + "；Windows 电源方案=" + plan;
-    }
-
-    private static string BuildOperationFailureDiagnostics(string operation, Exception exception)
-    {
-        return operation + "失败\n" + FormatExceptionDiagnostics(exception);
-    }
-
-    private static string FormatExceptionDiagnostics(Exception exception)
-    {
-        StringBuilder details = new();
-        Exception? current = exception;
-        int depth = 0;
-        while (current != null)
-        {
-            if (depth > 0) details.AppendLine().Append("内部异常 ").Append(depth).AppendLine("：");
-            details.Append(current.GetType().FullName)
-                .Append(" (HRESULT 0x")
-                .Append(current.HResult.ToString("X8"))
-                .AppendLine(")")
-                .Append(current.Message);
-            current = current.InnerException;
-            depth++;
-        }
-        return details.ToString();
-    }
-
-    private static bool CanWritePerformance(
-        SystemPowerSnapshot power,
-        PerformanceStatus status,
-        PowerSchemeStatus schemes,
-        int mode,
-        out string reason)
-    {
-        if (status.CurrentMode is not (1 or 2))
-        {
-            reason = "写入前无法通过 0x0E04 识别当前性能模式。";
-            return false;
-        }
-        if (power.IsOnAcPower != true)
-        {
-            reason = "写入前复核发现 AC 电源未连接或状态未知。";
-            return false;
-        }
-        if (!power.BatteryPercent.HasValue || power.BatteryPercent.Value < 20)
-        {
-            reason = "写入前复核发现电量低于 20% 或无法读取。";
-            return false;
-        }
-        if (schemes.GetTarget(mode) == null)
-        {
-            reason = mode == 2
-                ? "未找到 Honor Performance 电源方案，已阻止高能模式写入。"
-                : "未找到 Windows 平衡电源方案，已阻止智能模式写入。";
-            return false;
-        }
-        reason = string.Empty;
-        return true;
-    }
-
-    private void ValidateCustomThreshold()
-    {
-        if (TryGetCustomThreshold(out int start, out int end, false))
-        {
-            CustomChargeValidation = string.Empty;
-            CustomChargeValidationSeverity = InfoBarSeverity.Success;
-        }
-        else
-        {
-            CustomChargeValidation = "恢复值须低于停止值。";
-            CustomChargeValidationSeverity = InfoBarSeverity.Error;
-        }
-        OnPropertyChanged(nameof(SelectedChargePresetDetail));
-        OnPropertyChanged(nameof(ChargeModeHint));
-        OnPropertyChanged(nameof(CanApplySelectedChargeMode));
-    }
-
-    private bool IsCustomThresholdValid() => TryGetCustomThreshold(out _, out _, false);
-
-    private bool TryGetCustomThreshold(out int start, out int end, bool updateMessage = true)
-    {
-        start = 0;
-        end = 0;
-        bool startParsed = int.TryParse(CustomChargeStart, out start);
-        bool endParsed = int.TryParse(CustomChargeEnd, out end);
-        bool valid = startParsed && endParsed && start is >= 0 and <= 100 && end is >= 0 and <= 100 && start < end;
-        if (!valid && updateMessage)
-        {
-            CustomChargeValidation = "恢复值须低于停止值。";
-            CustomChargeValidationSeverity = InfoBarSeverity.Error;
-        }
-        return valid;
-    }
-
-    private void BeginOperation(string title, string detail, InfoBarSeverity severity)
-    {
-        IsBusy = true;
-        HasOperationStatus = true;
-        OperationTitle = title;
-        OperationStatus = detail;
-        OperationSeverity = severity;
-    }
-
-    private void FinishOperation(string title, string detail, InfoBarSeverity severity)
-    {
-        HasOperationStatus = true;
-        OperationTitle = title;
-        OperationStatus = detail;
-        OperationSeverity = severity;
-    }
-
-    private void NotifyControlStateChanged()
-    {
-        OnPropertyChanged(nameof(CanConfigureCharge));
-        OnPropertyChanged(nameof(CanApplySelectedChargePreset));
-        OnPropertyChanged(nameof(CanApplySelectedChargeMode));
-        OnPropertyChanged(nameof(CanConfigurePerformance));
-        OnPropertyChanged(nameof(CanSelectHighPerformance));
-        OnPropertyChanged(nameof(CanApplyPerformance));
-    }
-
-    private void AddActivity(string message, bool isError)
-    {
-        ActivityRecords.Insert(0, new ActivityRecord(message, isError));
-        if (ActivityRecords.Count > 8) ActivityRecords.RemoveAt(ActivityRecords.Count - 1);
-    }
-
-    private static string FormatChargeThreshold(ChargeThreshold threshold)
-    {
-        return $"当前阈值：{threshold.Start}%–{threshold.End}%";
-    }
-
-    private static int PresetFromThreshold(ChargeThreshold threshold)
-    {
-        if (threshold.Start == 40 && threshold.End == 70) return 1;
-        if (threshold.Start == 0 && threshold.End == 100) return 2;
-        return 0;
+            nameof(IsBusy), nameof(ConnectionTitle), nameof(ConnectionSeverity), nameof(DeviceSummary),
+            nameof(PowerSummary), nameof(ChargeStatus), nameof(ChargeDesiredStatus),
+            nameof(CurrentPerformanceModeText), nameof(CurrentPowerPlanText), nameof(PerformanceDesiredStatus),
+            nameof(PerformanceRequirementText), nameof(DiagnosticDetails), nameof(AutoReconcileEnabled),
+            nameof(AutoReconcileHint), nameof(IsServiceAvailable), nameof(CanConfigureCharge), nameof(CanApplySelectedChargeMode),
+            nameof(CanConfigurePerformance), nameof(CanSelectHighPerformance), nameof(CanApplyPerformance),
+            nameof(CustomChargeStart), nameof(CustomChargeEnd), nameof(SelectedChargePresetIndex),
+            nameof(SelectedPerformanceMode), nameof(SelectedPerformanceModeLabel)
+        }) OnPropertyChanged(name);
     }
 }

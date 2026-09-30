@@ -21,7 +21,9 @@ public static class AppDiagnostics
                 string header = $"{DateTimeOffset.Now:O} [startup] Honor Control {Environment.ProcessId}\r\n"
                     + $"Executable={Environment.ProcessPath}\r\n"
                     + $"OS={Environment.OSVersion}; Framework={Environment.Version}; Elevated={IsElevated()}\r\n";
-                File.WriteAllText(LogPath, header, new UTF8Encoding(false));
+                if (File.Exists(LogPath) && new FileInfo(LogPath).Length > 5 * 1024 * 1024)
+                    File.Move(LogPath, Path.Combine(DirectoryPath, "startup.previous.log"), true);
+                File.AppendAllText(LogPath, header, new UTF8Encoding(false));
             }
             catch
             {

@@ -23,6 +23,7 @@ public sealed partial class MainWindow : Window
     private readonly DispatcherTimer autoRefreshTimer = new() { Interval = TimeSpan.FromSeconds(15) };
     private bool themeSelectorIsLoading;
     private bool settingsAreLoading;
+    private bool autoReconcileLoading;
     private bool controlSelectionIsSyncing;
     private bool closeToTray;
     private bool hasShownTrayHint;
@@ -81,6 +82,7 @@ public sealed partial class MainWindow : Window
         SyncControlsFromViewModel();
         UpdateAlertVisibility();
         await viewModel.RefreshAsync();
+        SyncAutoReconcileToggle();
         SyncControlsFromViewModel();
         UpdateAlertVisibility();
         rootLoaded = true;
@@ -104,6 +106,7 @@ public sealed partial class MainWindow : Window
         {
             SyncControlsFromViewModel();
         }
+        if (e.PropertyName == nameof(MainViewModel.AutoReconcileEnabled)) SyncAutoReconcileToggle();
     }
 
     private void UpdateAlertVisibility()
@@ -215,11 +218,11 @@ public sealed partial class MainWindow : Window
         ContentDialog dialog = new()
         {
             XamlRoot = AppRoot.XamlRoot,
-            Title = "应用" + viewModel.SelectedPerformanceModeLabel,
+            Title = "保存" + viewModel.SelectedPerformanceModeLabel + "配置",
             Content = viewModel.SelectedPerformanceMode == 2
-                ? "将启用 Honor Performance 电源计划。功耗、温度和噪声可能上升。"
-                : "将恢复 Windows 平衡电源计划。",
-            PrimaryButtonText = "应用",
+                ? "后台服务将在条件满足且荣耀电脑管家未运行时同步固件与 Honor Performance 电源方案。功耗、温度和噪声可能上升。"
+                : "后台服务将在条件满足且荣耀电脑管家未运行时同步固件与 Windows 平衡电源方案。",
+            PrimaryButtonText = "保存配置",
             CloseButtonText = "取消",
             DefaultButton = ContentDialogButton.Close
         };
@@ -310,6 +313,20 @@ public sealed partial class MainWindow : Window
             : "设置保存失败：" + settingsService.LastError;
     }
 
+    private void SyncAutoReconcileToggle()
+    {
+        autoReconcileLoading = true;
+        AutoReconcileToggle.IsOn = viewModel.AutoReconcileEnabled;
+        autoReconcileLoading = false;
+    }
+
+    private async void AutoReconcileToggle_Toggled(object sender, RoutedEventArgs e)
+    {
+        if (autoReconcileLoading || viewModel is null || !viewModel.IsServiceAvailable) return;
+        await viewModel.SetAutoReconcileAsync(AutoReconcileToggle.IsOn);
+        SyncAutoReconcileToggle();
+    }
+
     private void AppWindow_Closing(AppWindow sender, AppWindowClosingEventArgs args)
     {
         AppDiagnostics.Write($"[window] Closing requested. ExplicitExit={explicitExit}; SystemEnding={trayIcon.SystemEnding}; CloseToTray={closeToTray}; TrayAvailable={trayIcon.IsAvailable}.");
@@ -354,6 +371,8 @@ public sealed partial class MainWindow : Window
         appWindow.Show();
         Activate();
     }
+
+    public void ShowFromExternalRequest() => ShowFromTray();
 
     private void ExitApplication()
     {

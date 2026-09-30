@@ -1,4 +1,5 @@
 using System.Runtime.InteropServices;
+using System.Security.Principal;
 using HonorControl.Services;
 using Microsoft.UI.Xaml;
 
@@ -7,6 +8,8 @@ namespace HonorControl;
 public partial class App : Application
 {
     private Window? window;
+    private Mutex? instanceMutex;
+    private EventWaitHandle? activationEvent;
 
     public App()
     {
@@ -28,9 +31,21 @@ public partial class App : Application
     {
         try
         {
+            string userSid = WindowsIdentity.GetCurrent().User?.Value
+                ?? throw new InvalidOperationException("无法识别当前 Windows 用户。");
+            string instanceName = @"Local\HonorControl.UI." + userSid;
+            activationEvent = new EventWaitHandle(false, EventResetMode.AutoReset, instanceName + ".Open");
+            instanceMutex = new Mutex(false, instanceName, out bool firstInstance);
+            if (!firstInstance)
+            {
+                activationEvent.Set();
+                Exit();
+                return;
+            }
             AppDiagnostics.Write("[launch] Creating main window.");
             window = new MainWindow();
             window.Activate();
+            _ = Task.Run(() => ListenForActivation((MainWindow)window, activationEvent));
             AppDiagnostics.Write("[launch] Main window activated.");
         }
         catch (Exception exception)
@@ -38,6 +53,15 @@ public partial class App : Application
             AppDiagnostics.WriteException("launch", exception);
             ShowStartupError(exception);
             Exit();
+        }
+    }
+
+    private static void ListenForActivation(MainWindow mainWindow, EventWaitHandle signal)
+    {
+        while (true)
+        {
+            signal.WaitOne();
+            if (!mainWindow.DispatcherQueue.TryEnqueue(mainWindow.ShowFromExternalRequest)) return;
         }
     }
 
