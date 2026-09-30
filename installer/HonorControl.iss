@@ -89,9 +89,10 @@ end;
 
 function PrepareToInstall(var NeedsRestart: Boolean): String;
 var
-  ErrorPath, PrerequisiteScript, ServiceScript, ServicePath, StatePath, State: String;
+  ErrorPath, PrerequisiteScript, ServiceScript, ServicePath, StatePath: String;
   DotNetPath, WindowsAppPath: String;
   NeedDotNet, NeedWindowsApp: Boolean;
+  StateLines: TArrayOfString;
 begin
   Result := '';
   ExtractTemporaryFile('Install-Prerequisites.ps1');
@@ -116,13 +117,13 @@ begin
   finally
     ProgressPage.Hide;
   end;
-  if not LoadStringFromFile(StatePath, State) then
+  if not LoadStringsFromFile(StatePath, StateLines) or (GetArrayLength(StateLines) <> 2) then
   begin
     Result := '无法读取运行依赖检查结果。';
     Exit;
   end;
-  NeedDotNet := Pos('DotNet=1', State) > 0;
-  NeedWindowsApp := Pos('WindowsApp=1', State) > 0;
+  NeedDotNet := StateLines[0] = 'DotNet=1';
+  NeedWindowsApp := StateLines[1] = 'WindowsApp=1';
   if NeedDotNet or NeedWindowsApp then
   begin
     DownloadPage.Clear;
