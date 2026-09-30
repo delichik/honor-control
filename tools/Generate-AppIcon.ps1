@@ -14,29 +14,42 @@ foreach ($size in $sizes) {
     try {
         $graphics.SmoothingMode = [System.Drawing.Drawing2D.SmoothingMode]::AntiAlias
         $graphics.PixelOffsetMode = [System.Drawing.Drawing2D.PixelOffsetMode]::HighQuality
-        $rect = [System.Drawing.RectangleF]::new(0, 0, $size, $size)
-        $background = [System.Drawing.Drawing2D.LinearGradientBrush]::new(
-            $rect,
-            [System.Drawing.Color]::FromArgb(255, 101, 78, 255),
-            [System.Drawing.Color]::FromArgb(255, 0, 164, 224),
-            45
-        )
+        $inset = [float]($size * 0.04)
+        $edge = [float]($size * 0.92)
+        $corner = [float]($size * 0.22)
+        $backgroundPath = [System.Drawing.Drawing2D.GraphicsPath]::new()
+        $backgroundPath.AddArc($inset, $inset, $corner * 2, $corner * 2, 180, 90)
+        $backgroundPath.AddArc($inset + $edge - $corner * 2, $inset, $corner * 2, $corner * 2, 270, 90)
+        $backgroundPath.AddArc($inset + $edge - $corner * 2, $inset + $edge - $corner * 2, $corner * 2, $corner * 2, 0, 90)
+        $backgroundPath.AddArc($inset, $inset + $edge - $corner * 2, $corner * 2, $corner * 2, 90, 90)
+        $backgroundPath.CloseFigure()
+        $background = [System.Drawing.SolidBrush]::new([System.Drawing.Color]::FromArgb(255, 30, 39, 49))
+        $border = [System.Drawing.Pen]::new([System.Drawing.Color]::FromArgb(255, 62, 83, 99), [float][Math]::Max(1, $size * 0.015))
         try {
-            $graphics.FillEllipse($background, [float]($size * 0.05), [float]($size * 0.05), [float]($size * 0.90), [float]($size * 0.90))
+            $graphics.FillPath($background, $backgroundPath)
+            $graphics.DrawPath($border, $backgroundPath)
         }
         finally {
+            $border.Dispose()
             $background.Dispose()
+            $backgroundPath.Dispose()
         }
 
         $points = [System.Drawing.PointF[]]@(
-            [System.Drawing.PointF]::new([float]($size * 0.56), [float]($size * 0.18)),
-            [System.Drawing.PointF]::new([float]($size * 0.28), [float]($size * 0.55)),
-            [System.Drawing.PointF]::new([float]($size * 0.47), [float]($size * 0.55)),
-            [System.Drawing.PointF]::new([float]($size * 0.40), [float]($size * 0.83)),
+            [System.Drawing.PointF]::new([float]($size * 0.58), [float]($size * 0.17)),
+            [System.Drawing.PointF]::new([float]($size * 0.30), [float]($size * 0.55)),
+            [System.Drawing.PointF]::new([float]($size * 0.48), [float]($size * 0.55)),
+            [System.Drawing.PointF]::new([float]($size * 0.41), [float]($size * 0.84)),
             [System.Drawing.PointF]::new([float]($size * 0.73), [float]($size * 0.43)),
-            [System.Drawing.PointF]::new([float]($size * 0.53), [float]($size * 0.43))
+            [System.Drawing.PointF]::new([float]($size * 0.54), [float]($size * 0.43))
         )
-        $graphics.FillPolygon([System.Drawing.Brushes]::White, $points)
+        $accent = [System.Drawing.SolidBrush]::new([System.Drawing.Color]::FromArgb(255, 142, 222, 250))
+        try {
+            $graphics.FillPolygon($accent, $points)
+        }
+        finally {
+            $accent.Dispose()
+        }
 
         $stream = [System.IO.MemoryStream]::new()
         try {

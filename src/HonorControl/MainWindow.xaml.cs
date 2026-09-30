@@ -25,6 +25,7 @@ public sealed partial class MainWindow : Window
     private readonly DispatcherTimer autoRefreshTimer = new() { Interval = TimeSpan.FromSeconds(15) };
     private Storyboard? pageTransition;
     private FrameworkElement? currentPage;
+    private double renderedBatteryPercent = -1;
     private int? renderedChargeStart = -1;
     private int? renderedChargeEnd = -1;
     private bool? overviewCardsStacked;
@@ -52,6 +53,7 @@ public sealed partial class MainWindow : Window
         AppDiagnostics.Write($"[window] Native window created. Hwnd=0x{windowHandle.ToInt64():X}.");
         appWindow = ConfigureWindow(windowHandle);
         string iconPath = Path.Combine(AppContext.BaseDirectory, "Assets", "HonorControl.ico");
+        if (File.Exists(iconPath)) appWindow.SetIcon(iconPath);
         trayIcon = new TrayIconController(windowHandle, DispatcherQueue, iconPath);
         trayIcon.OpenRequested += ShowFromTray;
         trayIcon.ExitRequested += ExitApplication;
@@ -64,6 +66,7 @@ public sealed partial class MainWindow : Window
         currentPage = OverviewView;
         MainNavigation.SelectedItem = OverviewNavigationItem;
         if (MainNavigation.SettingsItem is NavigationViewItem settingsItem) settingsItem.Content = "设置";
+        UpdateBatteryFill();
         UpdateChargeTrack();
         viewModel.PropertyChanged += ViewModel_PropertyChanged;
         AppRoot.ActualThemeChanged += AppRoot_ActualThemeChanged;
@@ -117,6 +120,7 @@ public sealed partial class MainWindow : Window
             SyncControlsFromViewModel();
         }
         if (e.PropertyName == nameof(MainViewModel.AutoReconcileEnabled)) SyncAutoReconcileToggle();
+        if (e.PropertyName == nameof(MainViewModel.BatteryProgress)) UpdateBatteryFill();
         if (e.PropertyName is nameof(MainViewModel.ActualChargeStart) or nameof(MainViewModel.ActualChargeEnd)) UpdateChargeTrack();
     }
 
@@ -249,6 +253,15 @@ public sealed partial class MainWindow : Window
         currentPage = next;
     }
 
+    private void UpdateBatteryFill()
+    {
+        double percent = viewModel.BatteryProgress;
+        if (percent == renderedBatteryPercent) return;
+        renderedBatteryPercent = percent;
+        BatteryFillSegments.ColumnDefinitions[0].Width = new GridLength(percent, GridUnitType.Star);
+        BatteryFillSegments.ColumnDefinitions[1].Width = new GridLength(100 - percent, GridUnitType.Star);
+    }
+
     private void UpdateChargeTrack()
     {
         int? start = viewModel.ActualChargeStart;
@@ -256,7 +269,10 @@ public sealed partial class MainWindow : Window
         if (start == renderedChargeStart && end == renderedChargeEnd) return;
         renderedChargeStart = start;
         renderedChargeEnd = end;
-        ChargeRangeFill.Visibility = start.HasValue && end.HasValue ? Visibility.Visible : Visibility.Collapsed;
+        Visibility markerVisibility = start.HasValue && end.HasValue ? Visibility.Visible : Visibility.Collapsed;
+        ChargeRangeFill.Visibility = markerVisibility;
+        ChargeStartMarker.Visibility = markerVisibility;
+        ChargeEndMarker.Visibility = markerVisibility;
         ChargeTrackSegments.ColumnDefinitions[0].Width = new GridLength(start ?? 0, GridUnitType.Star);
         ChargeTrackSegments.ColumnDefinitions[1].Width = new GridLength(start.HasValue && end.HasValue ? end.Value - start.Value : 0, GridUnitType.Star);
         ChargeTrackSegments.ColumnDefinitions[2].Width = new GridLength(end.HasValue ? 100 - end.Value : 100, GridUnitType.Star);
