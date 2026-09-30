@@ -92,12 +92,10 @@ public sealed partial class MainWindow : Window
 
     private void ViewModel_PropertyChanged(object? sender, PropertyChangedEventArgs e)
     {
-        if (e.PropertyName is nameof(MainViewModel.ConnectionSeverity)
-            or nameof(MainViewModel.OperationSeverity)
-            or nameof(MainViewModel.HasOperationStatus))
-        {
-            UpdateAlertVisibility();
-        }
+        if (e.PropertyName == nameof(MainViewModel.ConnectionSeverity))
+            ConnectionAlert.IsOpen = viewModel.ConnectionSeverity is InfoBarSeverity.Warning or InfoBarSeverity.Error;
+        if (e.PropertyName is nameof(MainViewModel.OperationSeverity) or nameof(MainViewModel.HasOperationStatus))
+            OperationAlert.IsOpen = viewModel.HasOperationStatus;
 
         if (e.PropertyName is nameof(MainViewModel.CustomChargeStart)
             or nameof(MainViewModel.CustomChargeEnd)
