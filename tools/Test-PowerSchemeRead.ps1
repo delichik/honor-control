@@ -3,7 +3,7 @@
 $ErrorActionPreference = 'Stop'
 $root = Split-Path $PSScriptRoot -Parent
 $files = @(
-    'src/HonorControl/Services/PowerSchemeService.cs',
+    'src/HonorControl.Service/Hardware/PowerSchemeService.cs',
     'src/HonorControl/Models/PowerSchemeInfo.cs',
     'src/HonorControl/Models/PowerSchemeStatus.cs'
 )
