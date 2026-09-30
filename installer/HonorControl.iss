@@ -33,13 +33,33 @@ Name: "{autodesktop}\Honor Control"; Filename: "{app}\ui\HonorControl.exe"; Task
 Name: "desktopicon"; Description: "创建桌面快捷方式"; GroupDescription: "附加选项："
 
 [Run]
-Filename: "{app}\ui\HonorControl.exe"; Description: "打开 Honor Control"; Flags: nowait postinstall skipifsilent runasoriginaluser
+Filename: "{app}\ui\HonorControl.exe"; Description: "打开 Honor Control"; Flags: nowait postinstall skipifsilent runasoriginaluser; Check: IsServiceReady
 
 [Code]
+const
+  DotNetUrl = 'https://builds.dotnet.microsoft.com/dotnet/Runtime/8.0.31/dotnet-runtime-8.0.31-win-x64.exe';
+  WindowsAppUrl = 'https://aka.ms/windowsappsdk/2.4/2.4.0/windowsappruntimeinstall-x64.exe';
+  DotNetFile = 'honorcontrol-dotnet-runtime-8.0.31-x64.exe';
+  WindowsAppFile = 'honorcontrol-windowsappruntime-2.4-x64.exe';
+
 var
   ServiceStoppedForUpgrade: Boolean;
   ExistingService: Boolean;
   UpgradeBackupCreated: Boolean;
+  ServiceReady: Boolean;
+  DownloadPage: TDownloadWizardPage;
+  ProgressPage: TOutputMarqueeProgressWizardPage;
+
+function IsServiceReady(): Boolean;
+begin
+  Result := ServiceReady;
+end;
+
+procedure InitializeWizard();
+begin
+  DownloadPage := CreateDownloadPage('下载运行依赖', '仅下载此电脑缺少的微软运行依赖。', nil);
+  ProgressPage := CreateOutputMarqueeProgressPage('检查安装条件', '正在验证设备和运行环境。');
+end;
 
 function Quote(const Text: String): String;
 begin
@@ -69,7 +89,9 @@ end;
 
 function PrepareToInstall(var NeedsRestart: Boolean): String;
 var
-  ErrorPath, PrerequisiteScript, ServiceScript, ServicePath: String;
+  ErrorPath, PrerequisiteScript, ServiceScript, ServicePath, StatePath, State: String;
+  DotNetPath, WindowsAppPath: String;
+  NeedDotNet, NeedWindowsApp: Boolean;
 begin
   Result := '';
   ExtractTemporaryFile('Install-Prerequisites.ps1');
@@ -78,11 +100,62 @@ begin
   PrerequisiteScript := ExpandConstant('{tmp}\Install-Prerequisites.ps1');
   ServiceScript := ExpandConstant('{tmp}\Manage-Service.ps1');
   ServicePath := ExpandConstant('{app}\service\HonorControl.Service.exe');
-  if not RunPowerShell(PrerequisiteScript,
-    '-Mode Install -RestartFlag ' + Quote(ExpandConstant('{tmp}\HonorControl-RestartRequired.flag')), ErrorPath) then
+  StatePath := ExpandConstant('{tmp}\HonorControl-PrerequisiteState.txt');
+  DotNetPath := ExpandConstant('{tmp}\' + DotNetFile);
+  WindowsAppPath := ExpandConstant('{tmp}\' + WindowsAppFile);
+  DeleteFile(StatePath);
+  ProgressPage.SetText('正在检查设备和运行依赖', '这一步可能需要一些时间。');
+  ProgressPage.Show;
+  ProgressPage.Animate;
+  try
+    if not RunPowerShell(PrerequisiteScript, '-Mode Check -StateFile ' + Quote(StatePath), ErrorPath) then
+    begin
+      Result := ReadError(ErrorPath, '设备或微软运行依赖检查失败。');
+      Exit;
+    end;
+  finally
+    ProgressPage.Hide;
+  end;
+  if not LoadStringFromFile(StatePath, State) then
   begin
-    Result := ReadError(ErrorPath, '设备或微软运行依赖检查失败。');
+    Result := '无法读取运行依赖检查结果。';
     Exit;
+  end;
+  NeedDotNet := Pos('DotNet=1', State) > 0;
+  NeedWindowsApp := Pos('WindowsApp=1', State) > 0;
+  if NeedDotNet or NeedWindowsApp then
+  begin
+    DownloadPage.Clear;
+    if NeedDotNet then DownloadPage.Add(DotNetUrl, DotNetFile, '');
+    if NeedWindowsApp then DownloadPage.Add(WindowsAppUrl, WindowsAppFile, '');
+    DownloadPage.Show;
+    try
+      try
+        DownloadPage.Download;
+      except
+        Result := '下载微软运行依赖失败：' + GetExceptionMessage;
+        Exit;
+      end;
+    finally
+      DownloadPage.Hide;
+    end;
+    ProgressPage.SetText('正在安装运行依赖', '安装微软运行依赖可能需要几分钟。');
+    ProgressPage.Show;
+    ProgressPage.Animate;
+    try
+      if not RunPowerShell(PrerequisiteScript,
+        '-Mode Install -DotNetInstaller ' + Quote(DotNetPath) +
+        ' -WindowsAppInstaller ' + Quote(WindowsAppPath) +
+        ' -RestartFlag ' + Quote(ExpandConstant('{tmp}\HonorControl-RestartRequired.flag')), ErrorPath) then
+      begin
+        Result := ReadError(ErrorPath, '微软运行依赖安装失败。');
+        Exit;
+      end;
+    finally
+      ProgressPage.Hide;
+      if NeedDotNet then DeleteFile(DotNetPath);
+      if NeedWindowsApp then DeleteFile(WindowsAppPath);
+    end;
   end;
   ExistingService := RegKeyExists(HKLM, 'SYSTEM\CurrentControlSet\Services\HonorControlService');
   if not RunPowerShell(ServiceScript, '-Mode Stop -ServicePath ' + Quote(ServicePath), ErrorPath) then
@@ -115,6 +188,7 @@ begin
   ServicePath := ExpandConstant('{app}\service\HonorControl.Service.exe');
   if not RunPowerShell(ScriptPath, '-Mode Install -ServicePath ' + Quote(ServicePath), ErrorPath) then
     RaiseException(ReadError(ErrorPath, 'Honor Control 服务安装失败。'));
+  ServiceReady := True;
   ServiceStoppedForUpgrade := False;
 end;
 

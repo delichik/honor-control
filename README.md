@@ -28,9 +28,9 @@ GitHub Actions 负责发布和打包。安装器要求管理员权限以注册�
 
 ## GitHub Actions 构建
 
-仓库包含 `.github/workflows/build-windows.yml`。推送 `src/HonorControl/`、解决方案或该工作流的改动后会自动构建；也可在 GitHub 的 **Actions → Build Honor Control → Run workflow** 手动触发。
+仓库包含 `.github/workflows/build-windows.yml`。推送程序源码、安装器、解决方案或该工作流的改动后会自动构建；也可在 GitHub 的 **Actions → Build Honor Control → Run workflow** 手动触发。
 
-工作流发布框架依赖版 WinUI 程序与服务，编译 `HonorControl-Setup-x64.exe`。安装包不包含 .NET Desktop Runtime 或 Windows App Runtime；安装前先检查 Windows 11 x64、荣耀厂商标识和 HWMI 只读回读，然后仅在缺少依赖时从微软官方下载 .NET 8 Desktop Runtime 及 Windows App Runtime 2.4。Windows App Runtime 检查以当前登录用户的包注册状态为准，避免把其他用户已安装误判为可用。下载的 .NET 安装器校验官方 SHA-512，两者均校验微软数字签名。网络或校验失败会阻止应用文件安装。
+工作流发布框架依赖版 WinUI 程序与服务，编译 `HonorControl-Setup-x64.exe`。安装包不包含 .NET Runtime 或 Windows App Runtime；安装前先检查 Windows 11 x64、荣耀厂商标识和 HWMI 只读回读，再检查 x64 `Microsoft.NETCore.App` 8.0（任一兼容补丁版本）与当前登录用户注册的 Windows App Runtime 2.4。只有缺少依赖时才显示下载进度、从微软官方下载并安装；不要求 .NET Desktop Runtime 或特定的 8.0.31 补丁版本。下载的 .NET 安装器校验官方 SHA-512，两者均校验微软数字签名。网络或校验失败会阻止应用文件安装。
 
 工作流尚未发布 GitHub Release，也没有代码签名。面向外部分发前，需签名安装器、界面和服务，并在目标荣耀电脑上完成安装/升级/卸载与硬件验证。升级前会备份旧安装，安装失败时尝试恢复文件和服务；这一恢复流程尚未经真实升级验证，不能视为事务性回滚。
 

@@ -1,14 +1,14 @@
 param(
     [ValidateSet('Check', 'Install')][string]$Mode = 'Check',
     [string]$ErrorFile,
-    [string]$RestartFlag
+    [string]$RestartFlag,
+    [string]$StateFile,
+    [string]$DotNetInstaller,
+    [string]$WindowsAppInstaller
 )
 
 $ErrorActionPreference = 'Stop'
-$dotNetVersion = '8.0.31'
-$dotNetUrl = 'https://builds.dotnet.microsoft.com/dotnet/WindowsDesktop/8.0.31/windowsdesktop-runtime-8.0.31-win-x64.exe'
-$dotNetSha512 = '605189223cf0a64bfb5453520b794d1d386a97c7e65e3944feaf9214db1a8b247f66c569265aef4204447baf5b5ff19559c323d887e1318f17deb28a5af0fa12'
-$windowsAppRuntimeUrl = 'https://aka.ms/windowsappsdk/2.4/2.4.0/windowsappruntimeinstall-x64.exe'
+$dotNetSha512 = '2dc2f346a4bcb53ab15ab6ab84348c02eb31b0a3d4e8e06aac73b4c89f1b001af01943ed4c5735fa5585f1dd731a942d2034577dfe937f4454367ff2d6edf929'
 
 function Test-SupportedDevice {
     $windows = Get-ItemProperty -LiteralPath 'HKLM:\SOFTWARE\Microsoft\Windows NT\CurrentVersion'
@@ -42,14 +42,14 @@ function Test-SupportedDevice {
     throw 'The HONOR hardware interface did not return a valid charge threshold.'
 }
 
-function Test-DesktopRuntime {
+function Test-DotNetRuntime {
     $programFiles64 = if ($env:ProgramW6432) { $env:ProgramW6432 } else { $env:ProgramFiles }
-    $root = Join-Path $programFiles64 'dotnet\shared\Microsoft.WindowsDesktop.App'
+    $root = Join-Path $programFiles64 'dotnet\shared\Microsoft.NETCore.App'
     if (-not (Test-Path -LiteralPath $root -PathType Container)) { return $false }
     foreach ($directory in Get-ChildItem -LiteralPath $root -Directory) {
         $version = $null
         if ([Version]::TryParse($directory.Name, [ref]$version) -and
-            $version.Major -eq 8 -and $version -ge [Version]$dotNetVersion) { return $true }
+            $version.Major -eq 8 -and $version.Minor -eq 0) { return $true }
     }
     return $false
 }
@@ -62,44 +62,44 @@ function Test-WindowsAppRuntime {
     return @($packages | Where-Object { $_.Architecture -eq 'X64' -and $_.Version -ge [Version]'2.4.0.0' }).Count -gt 0
 }
 
-function Get-VerifiedInstaller([string]$url, [string]$name, [string]$sha512) {
-    $path = Join-Path $env:TEMP $name
-    [Net.ServicePointManager]::SecurityProtocol = [Net.SecurityProtocolType]::Tls12
-    Invoke-WebRequest -Uri $url -OutFile $path -UseBasicParsing
+function Assert-VerifiedInstaller([string]$path, [string]$name, [string]$sha512) {
+    if (-not (Test-Path -LiteralPath $path -PathType Leaf)) { throw "Downloaded $name is missing." }
     if ($sha512 -and (Get-FileHash -LiteralPath $path -Algorithm SHA512).Hash -ne $sha512) {
-        Remove-Item -LiteralPath $path -Force
         throw "Downloaded $name failed hash verification."
     }
     $signature = Get-AuthenticodeSignature -LiteralPath $path
     if ($signature.Status -ne 'Valid' -or $signature.SignerCertificate.Subject -notmatch 'O=Microsoft Corporation') {
-        Remove-Item -LiteralPath $path -Force
         throw "Downloaded $name is not a valid Microsoft-signed installer."
     }
-    return $path
 }
 
 function Install-Dependency([string]$path, [string[]]$arguments) {
-    try {
-        $process = Start-Process -FilePath $path -ArgumentList $arguments -PassThru -Wait -WindowStyle Hidden
-        if ($process.ExitCode -notin @(0, 3010)) { throw "Dependency installation failed with exit code $($process.ExitCode)." }
-        if ($process.ExitCode -eq 3010) {
-            if ($RestartFlag) { Set-Content -LiteralPath $RestartFlag -Value '1' -Encoding ascii }
-        }
+    $process = Start-Process -FilePath $path -ArgumentList $arguments -PassThru -Wait -WindowStyle Hidden
+    if ($process.ExitCode -notin @(0, 3010)) { throw "Dependency installation failed with exit code $($process.ExitCode)." }
+    if ($process.ExitCode -eq 3010) {
+        if ($RestartFlag) { Set-Content -LiteralPath $RestartFlag -Value '1' -Encoding ascii }
     }
-    finally { Remove-Item -LiteralPath $path -Force -ErrorAction SilentlyContinue }
 }
 
 try {
     Test-SupportedDevice
-    if ($Mode -eq 'Install') {
-        if (-not (Test-DesktopRuntime)) {
-            $path = Get-VerifiedInstaller $dotNetUrl "honorcontrol-windowsdesktop-$dotNetVersion-x64.exe" $dotNetSha512
-            Install-Dependency $path @('/install', '/quiet', '/norestart')
-            if (-not (Test-DesktopRuntime)) { throw '.NET 8 Desktop Runtime is still unavailable after installation.' }
+    $needsDotNet = -not (Test-DotNetRuntime)
+    $needsWindowsApp = -not (Test-WindowsAppRuntime)
+    if ($Mode -eq 'Check') {
+        if ($StateFile) {
+            $state = "DotNet=$([int]$needsDotNet)`r`nWindowsApp=$([int]$needsWindowsApp)`r`n"
+            [IO.File]::WriteAllText($StateFile, $state, [Text.UTF8Encoding]::new($false))
         }
-        if (-not (Test-WindowsAppRuntime)) {
-            $path = Get-VerifiedInstaller $windowsAppRuntimeUrl 'honorcontrol-windowsappruntime-2.4-x64.exe' ''
-            Install-Dependency $path @('--quiet')
+    }
+    else {
+        if ($needsDotNet) {
+            Assert-VerifiedInstaller $DotNetInstaller '.NET 8 Runtime' $dotNetSha512
+            Install-Dependency $DotNetInstaller @('/install', '/quiet', '/norestart')
+            if (-not (Test-DotNetRuntime)) { throw '.NET 8 Runtime is still unavailable after installation.' }
+        }
+        if ($needsWindowsApp) {
+            Assert-VerifiedInstaller $WindowsAppInstaller 'Windows App Runtime 2.4' ''
+            Install-Dependency $WindowsAppInstaller @('--quiet')
             if (-not (Test-WindowsAppRuntime)) { throw 'Windows App Runtime 2.4 is still unavailable after installation.' }
         }
     }
