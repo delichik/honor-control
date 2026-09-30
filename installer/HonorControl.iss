@@ -47,8 +47,12 @@ begin
 end;
 
 function ReadError(const ErrorPath, Fallback: String): String;
+var
+  Lines: TArrayOfString;
 begin
-  if not LoadStringFromFile(ErrorPath, Result) then Result := Fallback;
+  Result := Fallback;
+  if LoadStringsFromFile(ErrorPath, Lines) then
+    if GetArrayLength(Lines) > 0 then Result := Lines[0];
 end;
 
 function RunPowerShell(const ScriptPath, Arguments, ErrorPath: String): Boolean;
