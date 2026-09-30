@@ -1,5 +1,6 @@
 using HonorControl.Contracts;
 using HonorControl.Services;
+using Microsoft.UI.Xaml;
 using Microsoft.UI.Xaml.Controls;
 
 namespace HonorControl.ViewModels;
@@ -33,7 +34,7 @@ public sealed class MainViewModel : ViewModelBase
         ? "无法连接后台服务。"
         : AutoReconcileEnabled ? "服务将在开机后和运行中持续校正配置。" : "关闭后，服务仅在保存配置时尝试应用。";
 
-    public string ConnectionTitle => connectionError != null ? "后台服务不可用"
+    public string ConnectionTitle => connectionError != null ? (snapshot == null ? "后台服务不可用" : "后台服务不可用 · 显示上次状态")
         : snapshot?.Actual.ServiceError != null ? "后台服务读取失败"
         : snapshot?.Actual.PcManagerOpen == true ? "荣耀电脑管家已开启 · 服务只读"
         : snapshot == null ? "正在连接后台服务" : "后台服务已连接";
@@ -43,29 +44,47 @@ public sealed class MainViewModel : ViewModelBase
     public InfoBarSeverity ConnectionSeverity => connectionError != null ? InfoBarSeverity.Error
         : snapshot?.Actual.ServiceError != null ? InfoBarSeverity.Error
         : snapshot?.Actual.PcManagerOpen == true ? InfoBarSeverity.Warning : InfoBarSeverity.Informational;
-    public string PowerSummary => snapshot?.Actual is { } actual
-        ? (actual.IsOnAcPower == true ? "已接通 AC" : actual.IsOnAcPower == false ? "未接通 AC" : "AC 状态未知")
-          + " · " + (actual.BatteryPercent.HasValue ? $"电池 {actual.BatteryPercent}%" : "电量未知")
-        : "正在读取电源状态";
-    public string ChargeStatus => snapshot?.Actual is { } actual
-        ? actual.ChargeStart.HasValue && actual.ChargeEnd.HasValue
-            ? $"设备实际阈值：{actual.ChargeStart}%–{actual.ChargeEnd}%"
-            : "设备实际阈值不可用：" + (actual.ChargeError ?? "尚未读取")
-        : "正在读取设备实际阈值";
-    public string ChargeDesiredStatus => snapshot?.Desired is { ChargeStart: int start, ChargeEnd: int end }
-        ? $"已保存的期望阈值：{start}%–{end}%" : "尚未保存期望阈值";
-    public string CurrentPerformanceModeText => snapshot?.Actual.PerformanceMode switch
+    public double BatteryProgress => snapshot?.Actual.BatteryPercent is int percent and >= 0 and <= 100 ? percent : 0;
+    public Visibility BatteryKnownVisibility => snapshot?.Actual.BatteryPercent is >= 0 and <= 100 ? Visibility.Visible : Visibility.Collapsed;
+    public Visibility BatteryUnknownVisibility => BatteryKnownVisibility == Visibility.Visible ? Visibility.Collapsed : Visibility.Visible;
+    public string BatteryPercentText => BatteryKnownVisibility == Visibility.Visible ? $"{snapshot!.Actual.BatteryPercent}%" : "—";
+    public string PowerStateText => snapshot?.Actual.IsOnAcPower switch
     {
-        1 => "设备实际模式 · 智能",
-        2 => "设备实际模式 · 高能",
-        _ => "设备实际模式 · 未知"
+        true => "已接通电源",
+        false => "电池供电",
+        _ => "供电状态未知"
     };
-    public string CurrentPowerPlanText => "Windows 电源方案 · " + (snapshot?.Actual.PowerSchemeName ?? "未知");
+    public string BatteryAccessibleText => $"实际电量：{(BatteryKnownVisibility == Visibility.Visible ? BatteryPercentText : "未知")}；{PowerStateText}";
+    public int? ActualChargeStart => HasActualChargeRange ? snapshot!.Actual.ChargeStart : null;
+    public int? ActualChargeEnd => HasActualChargeRange ? snapshot!.Actual.ChargeEnd : null;
+    private bool HasActualChargeRange => snapshot?.Actual is { ChargeStart: int start, ChargeEnd: int end }
+        && start is >= 0 and <= 100 && end is >= 0 and <= 100 && start < end;
+    public string ChargeRangeText => HasActualChargeRange ? $"{ActualChargeStart}–{ActualChargeEnd}%" : "—";
+    public string ChargeUnavailableText => snapshot?.Actual.ChargeError ?? (snapshot == null ? "正在读取" : "阈值未知");
+    public Visibility ChargeUnavailableVisibility => HasActualChargeRange && string.IsNullOrWhiteSpace(snapshot?.Actual.ChargeError)
+        ? Visibility.Collapsed : Visibility.Visible;
+    public string ChargeAccessibleText => HasActualChargeRange
+        ? $"设备实际阈值：恢复充电 {ActualChargeStart}%，停止充电 {ActualChargeEnd}%"
+          + (string.IsNullOrWhiteSpace(snapshot?.Actual.ChargeError) ? string.Empty : "；" + snapshot?.Actual.ChargeError)
+        : "设备实际阈值不可用：" + ChargeUnavailableText;
+    public Visibility ActualSmartVisibility => snapshot?.Actual.PerformanceMode == 1 ? Visibility.Visible : Visibility.Collapsed;
+    public Visibility ActualHighVisibility => snapshot?.Actual.PerformanceMode == 2 ? Visibility.Visible : Visibility.Collapsed;
+    public double ActualSmartOpacity => snapshot?.Actual.PerformanceMode == 1 ? 1 : 0.55;
+    public double ActualHighOpacity => snapshot?.Actual.PerformanceMode == 2 ? 1 : 0.55;
+    public string ActualPerformanceModeName => snapshot?.Actual.PerformanceMode switch { 1 => "智能", 2 => "高能", _ => "未知" };
+    public string ActualPowerPlanText => "Windows 电源方案 · " + (snapshot?.Actual.PowerSchemeName ?? "未知");
+    public string PerformanceReadoutError => snapshot?.Actual.PerformanceError
+        ?? (snapshot?.Actual.PerformanceMode is 1 or 2 ? string.Empty : "模式未知");
+    public Visibility PerformanceErrorVisibility => string.IsNullOrEmpty(PerformanceReadoutError) ? Visibility.Collapsed : Visibility.Visible;
+    public string PerformanceAccessibleText => $"设备实际性能模式：{ActualPerformanceModeName}；{ActualPowerPlanText}"
+        + (string.IsNullOrEmpty(PerformanceReadoutError) ? string.Empty : "；" + PerformanceReadoutError);
+    public string ChargeDesiredStatus => snapshot?.Desired is { ChargeStart: int start, ChargeEnd: int end }
+        ? $"已保存：{start}%–{end}%" : "尚未保存";
     public string PerformanceDesiredStatus => snapshot?.Desired.PerformanceMode switch
     {
-        1 => "已保存的期望模式：智能",
-        2 => "已保存的期望模式：高能",
-        _ => "尚未保存期望模式"
+        1 => "已保存：智能",
+        2 => "已保存：高能",
+        _ => "尚未保存"
     };
     public string PerformanceRequirementText => !IsServiceAvailable ? "后台服务不可用，无法保存配置。"
         : snapshot?.Actual.PcManagerOpen == true
@@ -79,7 +98,9 @@ public sealed class MainViewModel : ViewModelBase
         ? "Windows 平衡电源方案不可用；配置可保存，服务当前不会写入。"
         : snapshot?.Actual.IsOnAcPower != true ? "保存后，服务会等待 AC 供电再应用。"
         : snapshot?.Actual.BatteryPercent is not >= 20 ? "保存后，服务会等待电量达到 20% 再应用。"
-        : "保存配置后由后台服务复核并同步硬件与电源方案。";
+        : string.Empty;
+    public Visibility ChargeHintVisibility => string.IsNullOrEmpty(ChargeModeHint) ? Visibility.Collapsed : Visibility.Visible;
+    public Visibility PerformanceHintVisibility => string.IsNullOrEmpty(PerformanceRequirementText) ? Visibility.Collapsed : Visibility.Visible;
     public string DiagnosticDetails => snapshot == null ? connectionError ?? "尚未收到服务状态。"
         : $"服务检查时间：{snapshot.Actual.CheckedAt:O}\n"
           + $"期望阈值：{snapshot.Desired.ChargeStart}%–{snapshot.Desired.ChargeEnd}%；期望性能模式：{snapshot.Desired.PerformanceMode}\n"
@@ -90,17 +111,16 @@ public sealed class MainViewModel : ViewModelBase
     public string CustomChargeStart
     {
         get => customChargeStart;
-        set { customChargeStart = value; OnPropertyChanged(); OnPropertyChanged(nameof(ChargeModeHint)); OnPropertyChanged(nameof(CanApplySelectedChargeMode)); }
+        set { customChargeStart = value; OnPropertyChanged(); OnPropertyChanged(nameof(ChargeModeHint)); OnPropertyChanged(nameof(ChargeHintVisibility)); OnPropertyChanged(nameof(CanApplySelectedChargeMode)); }
     }
     public string CustomChargeEnd
     {
         get => customChargeEnd;
-        set { customChargeEnd = value; OnPropertyChanged(); OnPropertyChanged(nameof(ChargeModeHint)); OnPropertyChanged(nameof(CanApplySelectedChargeMode)); }
+        set { customChargeEnd = value; OnPropertyChanged(); OnPropertyChanged(nameof(ChargeModeHint)); OnPropertyChanged(nameof(ChargeHintVisibility)); OnPropertyChanged(nameof(CanApplySelectedChargeMode)); }
     }
     public int SelectedChargePresetIndex => selectedChargePreset - 1;
     public string ChargeModeHint => selectedChargePreset == 0 && !TryGetCustomThreshold(out _, out _)
         ? "恢复值须低于停止值。" : string.Empty;
-    public string ChargeActionLabel => "保存充电配置";
     public bool CanConfigureCharge => IsServiceAvailable && !busy;
     public bool CanApplySelectedChargeMode => CanConfigureCharge
         && (selectedChargePreset is 1 or 2 || selectedChargePreset == 0 && TryGetCustomThreshold(out _, out _));
@@ -140,6 +160,7 @@ public sealed class MainViewModel : ViewModelBase
         selectedChargePreset = preset;
         OnPropertyChanged(nameof(SelectedChargePresetIndex));
         OnPropertyChanged(nameof(ChargeModeHint));
+        OnPropertyChanged(nameof(ChargeHintVisibility));
         OnPropertyChanged(nameof(CanApplySelectedChargeMode));
     }
 
@@ -151,6 +172,7 @@ public sealed class MainViewModel : ViewModelBase
         OnPropertyChanged(nameof(SelectedPerformanceModeLabel));
         OnPropertyChanged(nameof(CanApplyPerformance));
         OnPropertyChanged(nameof(PerformanceRequirementText));
+        OnPropertyChanged(nameof(PerformanceHintVisibility));
     }
 
     public async Task ApplySelectedChargeModeAsync()
@@ -233,9 +255,15 @@ public sealed class MainViewModel : ViewModelBase
         foreach (string name in new[]
         {
             nameof(IsBusy), nameof(ConnectionTitle), nameof(ConnectionSeverity), nameof(DeviceSummary),
-            nameof(PowerSummary), nameof(ChargeStatus), nameof(ChargeDesiredStatus),
-            nameof(CurrentPerformanceModeText), nameof(CurrentPowerPlanText), nameof(PerformanceDesiredStatus),
-            nameof(PerformanceRequirementText), nameof(DiagnosticDetails), nameof(AutoReconcileEnabled),
+            nameof(BatteryProgress), nameof(BatteryKnownVisibility), nameof(BatteryUnknownVisibility),
+            nameof(BatteryPercentText), nameof(PowerStateText), nameof(BatteryAccessibleText),
+            nameof(ActualChargeStart), nameof(ActualChargeEnd), nameof(ChargeRangeText),
+            nameof(ChargeUnavailableText), nameof(ChargeUnavailableVisibility), nameof(ChargeAccessibleText),
+            nameof(ActualSmartVisibility), nameof(ActualHighVisibility), nameof(ActualSmartOpacity), nameof(ActualHighOpacity), nameof(ActualPerformanceModeName),
+            nameof(ActualPowerPlanText), nameof(PerformanceReadoutError), nameof(PerformanceErrorVisibility), nameof(PerformanceAccessibleText),
+            nameof(ChargeDesiredStatus), nameof(PerformanceDesiredStatus),
+            nameof(PerformanceRequirementText), nameof(PerformanceHintVisibility), nameof(ChargeHintVisibility),
+            nameof(DiagnosticDetails), nameof(AutoReconcileEnabled),
             nameof(AutoReconcileHint), nameof(IsServiceAvailable), nameof(CanConfigureCharge), nameof(CanApplySelectedChargeMode),
             nameof(CanConfigurePerformance), nameof(CanSelectHighPerformance), nameof(CanApplyPerformance),
             nameof(CustomChargeStart), nameof(CustomChargeEnd), nameof(SelectedChargePresetIndex),

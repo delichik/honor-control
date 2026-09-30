@@ -7,8 +7,10 @@ using Microsoft.UI.Windowing;
 using Microsoft.UI.Xaml;
 using Microsoft.UI.Xaml.Controls;
 using Microsoft.UI.Xaml.Media;
+using Microsoft.UI.Xaml.Media.Animation;
 using Windows.ApplicationModel.DataTransfer;
 using Windows.Graphics;
+using Windows.UI.ViewManagement;
 using WinRT.Interop;
 using Color = Windows.UI.Color;
 
@@ -21,6 +23,12 @@ public sealed partial class MainWindow : Window
     private readonly AppWindow appWindow;
     private readonly TrayIconController trayIcon;
     private readonly DispatcherTimer autoRefreshTimer = new() { Interval = TimeSpan.FromSeconds(15) };
+    private Storyboard? pageTransition;
+    private FrameworkElement? currentPage;
+    private int? renderedChargeStart = -1;
+    private int? renderedChargeEnd = -1;
+    private bool? overviewCardsStacked;
+    private bool? powerCardsStacked;
     private bool themeSelectorIsLoading;
     private bool settingsAreLoading;
     private bool autoReconcileLoading;
@@ -53,6 +61,10 @@ public sealed partial class MainWindow : Window
         viewModel = new MainViewModel();
         PopulateCustomChargeOptions();
         AppRoot.DataContext = viewModel;
+        currentPage = OverviewView;
+        MainNavigation.SelectedItem = OverviewNavigationItem;
+        if (MainNavigation.SettingsItem is NavigationViewItem settingsItem) settingsItem.Content = "设置";
+        UpdateChargeTrack();
         viewModel.PropertyChanged += ViewModel_PropertyChanged;
         AppRoot.ActualThemeChanged += AppRoot_ActualThemeChanged;
         AppRoot.Loaded += AppRoot_Loaded;
@@ -105,6 +117,7 @@ public sealed partial class MainWindow : Window
             SyncControlsFromViewModel();
         }
         if (e.PropertyName == nameof(MainViewModel.AutoReconcileEnabled)) SyncAutoReconcileToggle();
+        if (e.PropertyName is nameof(MainViewModel.ActualChargeStart) or nameof(MainViewModel.ActualChargeEnd)) UpdateChargeTrack();
     }
 
     private void UpdateAlertVisibility()
@@ -199,16 +212,95 @@ public sealed partial class MainWindow : Window
         }
     }
 
-    private void OpenSettings_Click(object sender, RoutedEventArgs e)
+    private void OverviewStatusGrid_SizeChanged(object sender, SizeChangedEventArgs e)
     {
-        DashboardView.Visibility = Visibility.Collapsed;
-        SettingsView.Visibility = Visibility.Visible;
+        bool stacked = e.NewSize.Width < 650;
+        if (overviewCardsStacked == stacked) return;
+        overviewCardsStacked = stacked;
+        OverviewStatusGrid.RowSpacing = stacked ? 14 : 0;
+        Grid.SetColumnSpan(BatteryStatusCard, stacked ? 3 : 1);
+        Grid.SetColumn(ChargeStatusCard, stacked ? 0 : 1);
+        Grid.SetRow(ChargeStatusCard, stacked ? 1 : 0);
+        Grid.SetColumnSpan(ChargeStatusCard, stacked ? 3 : 1);
+        Grid.SetColumn(PerformanceStatusCard, stacked ? 0 : 2);
+        Grid.SetRow(PerformanceStatusCard, stacked ? 2 : 0);
+        Grid.SetColumnSpan(PerformanceStatusCard, stacked ? 3 : 1);
     }
 
-    private void BackToDashboard_Click(object sender, RoutedEventArgs e)
+    private void PowerSettingsGrid_SizeChanged(object sender, SizeChangedEventArgs e)
     {
-        SettingsView.Visibility = Visibility.Collapsed;
-        DashboardView.Visibility = Visibility.Visible;
+        bool stacked = e.NewSize.Width < 650;
+        if (powerCardsStacked == stacked) return;
+        powerCardsStacked = stacked;
+        PowerSettingsGrid.RowSpacing = stacked ? 16 : 0;
+        Grid.SetColumnSpan(ChargeSettingsCard, stacked ? 2 : 1);
+        Grid.SetColumn(PerformanceSettingsCard, stacked ? 0 : 1);
+        Grid.SetRow(PerformanceSettingsCard, stacked ? 1 : 0);
+        Grid.SetColumnSpan(PerformanceSettingsCard, stacked ? 2 : 1);
+    }
+
+    private void MainNavigation_SelectionChanged(NavigationView sender, NavigationViewSelectionChangedEventArgs args)
+    {
+        if (currentPage is null) return;
+        FrameworkElement next = args.IsSettingsSelected ? SettingsView
+            : ReferenceEquals(args.SelectedItem, PowerNavigationItem) ? PowerSettingsView : OverviewView;
+        if (ReferenceEquals(currentPage, next)) return;
+        ShowPage(currentPage, next);
+        currentPage = next;
+    }
+
+    private void UpdateChargeTrack()
+    {
+        int? start = viewModel.ActualChargeStart;
+        int? end = viewModel.ActualChargeEnd;
+        if (start == renderedChargeStart && end == renderedChargeEnd) return;
+        renderedChargeStart = start;
+        renderedChargeEnd = end;
+        ChargeRangeFill.Visibility = start.HasValue && end.HasValue ? Visibility.Visible : Visibility.Collapsed;
+        ChargeTrackSegments.ColumnDefinitions[0].Width = new GridLength(start ?? 0, GridUnitType.Star);
+        ChargeTrackSegments.ColumnDefinitions[1].Width = new GridLength(start.HasValue && end.HasValue ? end.Value - start.Value : 0, GridUnitType.Star);
+        ChargeTrackSegments.ColumnDefinitions[2].Width = new GridLength(end.HasValue ? 100 - end.Value : 100, GridUnitType.Star);
+    }
+
+    private void ShowPage(FrameworkElement current, FrameworkElement next)
+    {
+        pageTransition?.Stop();
+        current.Opacity = 1;
+        if (current.RenderTransform is TranslateTransform previousTranslation) previousTranslation.Y = 0;
+        current.Visibility = Visibility.Collapsed;
+        next.Visibility = Visibility.Visible;
+        TranslateTransform translation = next.RenderTransform as TranslateTransform ?? new TranslateTransform();
+        next.RenderTransform = translation;
+        next.Opacity = 1;
+        translation.Y = 0;
+        if (!new UISettings().AnimationsEnabled) return;
+
+        CubicEase easing = new() { EasingMode = EasingMode.EaseOut };
+        DoubleAnimation fade = new()
+        {
+            From = 0,
+            To = 1,
+            Duration = new Duration(TimeSpan.FromMilliseconds(200)),
+            EasingFunction = easing
+        };
+        Storyboard.SetTarget(fade, next);
+        Storyboard.SetTargetProperty(fade, "Opacity");
+
+        DoubleAnimation slide = new()
+        {
+            From = 10,
+            To = 0,
+            Duration = new Duration(TimeSpan.FromMilliseconds(200)),
+            EasingFunction = easing,
+            EnableDependentAnimation = true
+        };
+        Storyboard.SetTarget(slide, translation);
+        Storyboard.SetTargetProperty(slide, "Y");
+
+        pageTransition = new Storyboard();
+        pageTransition.Children.Add(fade);
+        pageTransition.Children.Add(slide);
+        pageTransition.Begin();
     }
 
     private async void ApplyPerformanceMode_Click(object sender, RoutedEventArgs e)

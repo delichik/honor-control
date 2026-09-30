@@ -10,176 +10,244 @@
     <TextBlock Text="Honor Control" Style="{StaticResource BodyStrongTextBlockStyle}"/>
    </StackPanel>
   </Grid>
+
   <Grid Grid.Row="1">
-   <Grid.RowDefinitions><RowDefinition Height="Auto"/><RowDefinition Height="*"/></Grid.RowDefinitions>
-   <controls:InfoBar x:Name="OperationAlert" Margin="32,0,32,8" IsOpen="False" IsClosable="True" Severity="{Binding OperationSeverity}" Title="{Binding OperationTitle}" Message="{Binding OperationStatus}"/>
-   <ScrollViewer x:Name="DashboardView" Grid.Row="1" HorizontalScrollBarVisibility="Disabled" HorizontalScrollMode="Disabled" HorizontalContentAlignment="Stretch" SizeChanged="PageViewport_SizeChanged">
-    <Grid HorizontalAlignment="Stretch">
-    <StackPanel x:Name="DashboardContent" HorizontalAlignment="Center" Padding="32,20,32,32" Spacing="20">
-     <StackPanel.Transitions><TransitionCollection><EntranceThemeTransition/></TransitionCollection></StackPanel.Transitions>
-     <Grid ColumnSpacing="20">
-      <Grid.ColumnDefinitions><ColumnDefinition Width="*"/><ColumnDefinition Width="Auto"/></Grid.ColumnDefinitions>
-      <StackPanel Spacing="6">
-       <TextBlock Text="设备概览" Style="{StaticResource PageTitleTextStyle}"/>
-       <TextBlock Text="{Binding PowerSummary}" Style="{StaticResource SecondaryTextStyle}"/>
-      </StackPanel>
-      <Button Grid.Column="1" Click="OpenSettings_Click" VerticalAlignment="Top" AutomationProperties.Name="设置" ToolTipService.ToolTip="设置">
-       <StackPanel Orientation="Horizontal" Spacing="8"><FontIcon Glyph="&#xE713;" FontSize="16"/><TextBlock Text="设置"/></StackPanel>
-      </Button>
-     </Grid>
-     <StackPanel Spacing="4">
-      <TextBlock Text="{Binding CurrentPerformanceModeText}" Style="{StaticResource BodyStrongTextBlockStyle}"/>
-      <TextBlock Text="{Binding CurrentPowerPlanText}" Style="{StaticResource SecondaryTextStyle}"/>
-      <TextBlock Text="{Binding PerformanceDesiredStatus}" Style="{StaticResource SecondaryTextStyle}"/>
-     </StackPanel>
-     <controls:InfoBar x:Name="ConnectionAlert" IsOpen="False" IsClosable="True" Severity="{Binding ConnectionSeverity}" Title="{Binding ConnectionTitle}" Message="{Binding DeviceSummary}"/>
-     <StackPanel Spacing="12">
-      <TextBlock Text="充电管理" Style="{StaticResource SectionTitleTextStyle}"/>
-      <TextBlock Text="{Binding ChargeStatus}" Style="{StaticResource SecondaryTextStyle}"/>
-      <TextBlock Text="{Binding ChargeDesiredStatus}" Style="{StaticResource SecondaryTextStyle}"/>
-      <StackPanel Spacing="6">
-       <RadioButton x:Name="ChargeProtectOption"  GroupName="ChargeMode" Tag="1" AutomationProperties.Name="电池保护" Style="{StaticResource OptionRadioButtonStyle}" IsEnabled="{Binding CanConfigureCharge}" Checked="ChargeModeOption_Checked">
-    <Grid ColumnSpacing="16"><Grid.ColumnDefinitions><ColumnDefinition Width="28"/><ColumnDefinition Width="*"/></Grid.ColumnDefinitions>
-        <FontIcon Glyph="&#xE83D;" FontSize="22" VerticalAlignment="Center"/>
-        <StackPanel Grid.Column="1" Spacing="3"><TextBlock Text="电池保护" Style="{StaticResource BodyStrongTextBlockStyle}"/><TextBlock Text="40%–70%" Style="{StaticResource SecondaryTextStyle}"/></StackPanel>
-    </Grid>
-</RadioButton>
-       <RadioButton x:Name="ChargeFullOption"  GroupName="ChargeMode" Tag="2" AutomationProperties.Name="完整续航" Style="{StaticResource OptionRadioButtonStyle}" IsEnabled="{Binding CanConfigureCharge}" Checked="ChargeModeOption_Checked">
-    <Grid ColumnSpacing="16"><Grid.ColumnDefinitions><ColumnDefinition Width="28"/><ColumnDefinition Width="*"/></Grid.ColumnDefinitions>
-        <FontIcon Glyph="&#xE83F;" FontSize="22" VerticalAlignment="Center"/>
-        <StackPanel Grid.Column="1" Spacing="3"><TextBlock Text="完整续航" Style="{StaticResource BodyStrongTextBlockStyle}"/><TextBlock Text="0%–100%" Style="{StaticResource SecondaryTextStyle}"/></StackPanel>
-    </Grid>
-</RadioButton>
-       <RadioButton x:Name="ChargeCustomOption"  GroupName="ChargeMode" Tag="0" AutomationProperties.Name="自定义" Style="{StaticResource OptionRadioButtonStyle}" IsEnabled="{Binding CanConfigureCharge}" Checked="ChargeModeOption_Checked">
-    <Grid ColumnSpacing="16"><Grid.ColumnDefinitions><ColumnDefinition Width="28"/><ColumnDefinition Width="*"/></Grid.ColumnDefinitions>
-        <FontIcon Glyph="&#xE713;" FontSize="22" VerticalAlignment="Center"/>
-        <TextBlock Grid.Column="1" Text="自定义" Style="{StaticResource BodyStrongTextBlockStyle}" VerticalAlignment="Center"/>
-    </Grid>
-</RadioButton>
-      </StackPanel>
-      <Grid x:Name="CustomChargeEditor" Visibility="Collapsed" ColumnSpacing="12">
-       <Grid.ColumnDefinitions><ColumnDefinition Width="*"/><ColumnDefinition Width="*"/></Grid.ColumnDefinitions>
-       <ComboBox x:Name="CustomChargeStartBox" Header="恢复充电" HorizontalAlignment="Stretch" MaxDropDownHeight="320" SelectionChanged="CustomChargeSelection_Changed"/>
-       <ComboBox x:Name="CustomChargeEndBox" Grid.Column="1" Header="停止充电" HorizontalAlignment="Stretch" MaxDropDownHeight="320" SelectionChanged="CustomChargeSelection_Changed"/>
+   <Grid.RowDefinitions><RowDefinition Height="Auto"/><RowDefinition Height="Auto"/><RowDefinition Height="*"/></Grid.RowDefinitions>
+   <controls:InfoBar x:Name="OperationAlert" Margin="20,0,20,0" IsOpen="False" IsClosable="True" Severity="{Binding OperationSeverity}" Title="{Binding OperationTitle}" Message="{Binding OperationStatus}"/>
+   <controls:InfoBar x:Name="ConnectionAlert" Grid.Row="1" Margin="20,0,20,0" IsOpen="False" IsClosable="True" Severity="{Binding ConnectionSeverity}" Title="{Binding ConnectionTitle}" Message="{Binding DeviceSummary}"/>
+   <controls:NavigationView x:Name="MainNavigation" Grid.Row="2" PaneDisplayMode="Left" OpenPaneLength="196" CompactPaneLength="52" IsPaneOpen="True" IsBackButtonVisible="Collapsed" AlwaysShowHeader="False" IsSettingsVisible="True" SelectionChanged="MainNavigation_SelectionChanged">
+    <controls:NavigationView.MenuItems>
+     <controls:NavigationViewItem x:Name="OverviewNavigationItem" Content="概览" AutomationProperties.Name="概览">
+      <controls:NavigationViewItem.Icon><FontIcon Glyph="&#xE80F;"/></controls:NavigationViewItem.Icon>
+     </controls:NavigationViewItem>
+     <controls:NavigationViewItem x:Name="PowerNavigationItem" Content="电源设置" AutomationProperties.Name="电源设置">
+      <controls:NavigationViewItem.Icon><FontIcon Glyph="&#xE945;"/></controls:NavigationViewItem.Icon>
+     </controls:NavigationViewItem>
+    </controls:NavigationView.MenuItems>
+
+    <Grid>
+     <ScrollViewer x:Name="OverviewView" HorizontalScrollBarVisibility="Disabled" HorizontalScrollMode="Disabled" HorizontalContentAlignment="Stretch" SizeChanged="PageViewport_SizeChanged">
+      <Grid HorizontalAlignment="Stretch">
+       <StackPanel x:Name="OverviewContent" HorizontalAlignment="Center" Padding="28,24,28,32" Spacing="20">
+        <TextBlock Text="概览" Style="{StaticResource PageTitleTextStyle}"/>
+        <Grid x:Name="OverviewStatusGrid" ColumnSpacing="14" SizeChanged="OverviewStatusGrid_SizeChanged">
+         <Grid.ColumnDefinitions><ColumnDefinition Width="*"/><ColumnDefinition Width="*"/><ColumnDefinition Width="*"/></Grid.ColumnDefinitions>
+         <Grid.RowDefinitions><RowDefinition Height="Auto"/><RowDefinition Height="Auto"/><RowDefinition Height="Auto"/></Grid.RowDefinitions>
+
+         <Border x:Name="BatteryStatusCard" Grid.Column="0" Height="250" Style="{StaticResource StatusCardStyle}" AutomationProperties.Name="{Binding BatteryAccessibleText}">
+          <StackPanel Spacing="10">
+           <TextBlock Text="电池" Style="{StaticResource BodyStrongTextBlockStyle}"/>
+           <Grid Width="150" Height="60" HorizontalAlignment="Left" Margin="0,14,0,0">
+            <Border Width="136" Height="54" Padding="5" HorizontalAlignment="Left" VerticalAlignment="Center" BorderBrush="{ThemeResource TextFillColorPrimaryBrush}" BorderThickness="2" CornerRadius="8">
+             <Grid>
+              <ProgressBar Minimum="0" Maximum="100" Value="{Binding BatteryProgress}" Height="36" Visibility="{Binding BatteryKnownVisibility}"/>
+              <TextBlock Text="?" FontSize="28" FontWeight="SemiBold" HorizontalAlignment="Center" VerticalAlignment="Center" Visibility="{Binding BatteryUnknownVisibility}"/>
+             </Grid>
+            </Border>
+            <Border Width="8" Height="16" HorizontalAlignment="Right" VerticalAlignment="Center" Margin="0,0,2,0" Background="{ThemeResource TextFillColorPrimaryBrush}" CornerRadius="0,3,3,0"/>
+           </Grid>
+           <TextBlock Text="{Binding BatteryPercentText}" FontSize="32" FontWeight="SemiBold"/>
+           <StackPanel Orientation="Horizontal" Spacing="7">
+            <FontIcon Glyph="&#xE7E8;" FontSize="15" Foreground="{ThemeResource AccentTextFillColorPrimaryBrush}"/>
+            <TextBlock Text="{Binding PowerStateText}" Style="{StaticResource SecondaryTextStyle}"/>
+           </StackPanel>
+          </StackPanel>
+         </Border>
+
+         <Border x:Name="ChargeStatusCard" Grid.Column="1" Height="250" Style="{StaticResource StatusCardStyle}" AutomationProperties.Name="{Binding ChargeAccessibleText}">
+          <Grid>
+           <Grid.RowDefinitions><RowDefinition Height="Auto"/><RowDefinition Height="*"/><RowDefinition Height="Auto"/><RowDefinition Height="Auto"/><RowDefinition Height="Auto"/></Grid.RowDefinitions>
+           <TextBlock Text="充电区间" Style="{StaticResource BodyStrongTextBlockStyle}"/>
+           <TextBlock Grid.Row="1" Text="{Binding ChargeRangeText}" FontSize="32" FontWeight="SemiBold" VerticalAlignment="Center"/>
+           <Grid Grid.Row="2" Height="14" Margin="5,0,5,0">
+            <Border Background="{ThemeResource ControlFillColorSecondaryBrush}" CornerRadius="7"/>
+            <Grid x:Name="ChargeTrackSegments">
+             <Grid.ColumnDefinitions>
+              <ColumnDefinition Width="40*"/>
+              <ColumnDefinition Width="30*"/>
+              <ColumnDefinition Width="30*"/>
+             </Grid.ColumnDefinitions>
+             <Border x:Name="ChargeRangeFill" Grid.Column="1" Background="{ThemeResource AccentFillColorDefaultBrush}" CornerRadius="7"/>
+            </Grid>
+           </Grid>
+           <Grid Grid.Row="3" Margin="0,8,0,0">
+            <TextBlock Text="0%" Style="{StaticResource SecondaryTextStyle}" HorizontalAlignment="Left"/>
+            <TextBlock Text="100%" Style="{StaticResource SecondaryTextStyle}" HorizontalAlignment="Right"/>
+           </Grid>
+           <TextBlock Grid.Row="4" Text="{Binding ChargeUnavailableText}" Style="{StaticResource SecondaryTextStyle}" Visibility="{Binding ChargeUnavailableVisibility}" MaxLines="2" Margin="0,8,0,0"/>
+          </Grid>
+         </Border>
+
+         <Border x:Name="PerformanceStatusCard" Grid.Column="2" Height="250" Style="{StaticResource StatusCardStyle}" AutomationProperties.Name="{Binding PerformanceAccessibleText}">
+          <Grid>
+           <Grid.RowDefinitions><RowDefinition Height="Auto"/><RowDefinition Height="*"/><RowDefinition Height="Auto"/><RowDefinition Height="Auto"/></Grid.RowDefinitions>
+           <TextBlock Text="性能模式" Style="{StaticResource BodyStrongTextBlockStyle}"/>
+           <Grid Grid.Row="1" ColumnSpacing="8" VerticalAlignment="Center">
+            <Grid.ColumnDefinitions><ColumnDefinition Width="*"/><ColumnDefinition Width="*"/></Grid.ColumnDefinitions>
+            <Grid Height="80">
+             <Border Background="{ThemeResource ControlFillColorSecondaryBrush}" CornerRadius="8"/>
+             <Border Background="{ThemeResource AccentFillColorDefaultBrush}" CornerRadius="8" Opacity="0.18" Visibility="{Binding ActualSmartVisibility}"/>
+             <StackPanel Spacing="4" VerticalAlignment="Center" HorizontalAlignment="Center" Opacity="{Binding ActualSmartOpacity}">
+              <FontIcon Glyph="&#xE9CA;" FontSize="22" HorizontalAlignment="Center"/>
+              <TextBlock Text="智能" HorizontalAlignment="Center"/>
+             </StackPanel>
+            </Grid>
+            <Grid Grid.Column="1" Height="80">
+             <Border Background="{ThemeResource ControlFillColorSecondaryBrush}" CornerRadius="8"/>
+             <Border Background="{ThemeResource AccentFillColorDefaultBrush}" CornerRadius="8" Opacity="0.18" Visibility="{Binding ActualHighVisibility}"/>
+             <StackPanel Spacing="4" VerticalAlignment="Center" HorizontalAlignment="Center" Opacity="{Binding ActualHighOpacity}">
+              <FontIcon Glyph="&#xE945;" FontSize="22" HorizontalAlignment="Center"/>
+              <TextBlock Text="高能" HorizontalAlignment="Center"/>
+             </StackPanel>
+            </Grid>
+           </Grid>
+           <TextBlock Grid.Row="2" Text="{Binding ActualPowerPlanText}" Style="{StaticResource SecondaryTextStyle}" MaxLines="1" TextTrimming="CharacterEllipsis" ToolTipService.ToolTip="{Binding ActualPowerPlanText}"/>
+           <TextBlock Grid.Row="3" Text="{Binding PerformanceReadoutError}" Style="{StaticResource SecondaryTextStyle}" Visibility="{Binding PerformanceErrorVisibility}" MaxLines="2" Margin="0,6,0,0"/>
+          </Grid>
+         </Border>
+        </Grid>
+       </StackPanel>
       </Grid>
-      <Grid ColumnSpacing="20">
-       <Grid.ColumnDefinitions><ColumnDefinition Width="*"/><ColumnDefinition Width="Auto"/></Grid.ColumnDefinitions>
-       <TextBlock Text="{Binding ChargeModeHint}" Style="{StaticResource SecondaryTextStyle}" VerticalAlignment="Center"/>
-       <Button Grid.Column="1" Content="{Binding ChargeActionLabel}" Style="{StaticResource PrimaryActionButtonStyle}" Click="ApplySelectedChargeMode_Click" IsEnabled="{Binding CanApplySelectedChargeMode}"/>
+     </ScrollViewer>
+
+     <ScrollViewer x:Name="PowerSettingsView" Visibility="Collapsed" HorizontalScrollBarVisibility="Disabled" HorizontalScrollMode="Disabled" HorizontalContentAlignment="Stretch" SizeChanged="PageViewport_SizeChanged">
+      <Grid HorizontalAlignment="Stretch">
+       <StackPanel x:Name="PowerSettingsContent" HorizontalAlignment="Center" Padding="28,24,28,32" Spacing="20">
+        <TextBlock Text="电源设置" Style="{StaticResource PageTitleTextStyle}"/>
+        <Grid x:Name="PowerSettingsGrid" ColumnSpacing="16" SizeChanged="PowerSettingsGrid_SizeChanged">
+         <Grid.ColumnDefinitions><ColumnDefinition Width="*"/><ColumnDefinition Width="*"/></Grid.ColumnDefinitions>
+         <Grid.RowDefinitions><RowDefinition Height="Auto"/><RowDefinition Height="Auto"/></Grid.RowDefinitions>
+         <Border x:Name="ChargeSettingsCard" Grid.Column="0" MinHeight="440" Style="{StaticResource AppCardStyle}">
+          <Grid RowSpacing="16">
+           <Grid.RowDefinitions><RowDefinition Height="Auto"/><RowDefinition Height="*"/><RowDefinition Height="Auto"/></Grid.RowDefinitions>
+           <TextBlock Text="充电阈值" Style="{StaticResource SectionTitleTextStyle}"/>
+           <StackPanel Grid.Row="1" Spacing="8">
+            <RadioButton x:Name="ChargeProtectOption" GroupName="ChargeMode" Tag="1" AutomationProperties.Name="电池保护" Style="{StaticResource OptionRadioButtonStyle}" IsEnabled="{Binding CanConfigureCharge}" Checked="ChargeModeOption_Checked">
+             <Grid ColumnSpacing="12"><Grid.ColumnDefinitions><ColumnDefinition Width="28"/><ColumnDefinition Width="*"/></Grid.ColumnDefinitions>
+              <FontIcon Glyph="&#xE83D;" FontSize="22" VerticalAlignment="Center"/>
+              <StackPanel Grid.Column="1" Spacing="2"><TextBlock Text="电池保护" Style="{StaticResource BodyStrongTextBlockStyle}"/><TextBlock Text="40%–70%" Style="{StaticResource SecondaryTextStyle}"/></StackPanel>
+             </Grid>
+            </RadioButton>
+            <RadioButton x:Name="ChargeFullOption" GroupName="ChargeMode" Tag="2" AutomationProperties.Name="完整续航" Style="{StaticResource OptionRadioButtonStyle}" IsEnabled="{Binding CanConfigureCharge}" Checked="ChargeModeOption_Checked">
+             <Grid ColumnSpacing="12"><Grid.ColumnDefinitions><ColumnDefinition Width="28"/><ColumnDefinition Width="*"/></Grid.ColumnDefinitions>
+              <FontIcon Glyph="&#xE83F;" FontSize="22" VerticalAlignment="Center"/>
+              <StackPanel Grid.Column="1" Spacing="2"><TextBlock Text="完整续航" Style="{StaticResource BodyStrongTextBlockStyle}"/><TextBlock Text="0%–100%" Style="{StaticResource SecondaryTextStyle}"/></StackPanel>
+             </Grid>
+            </RadioButton>
+            <RadioButton x:Name="ChargeCustomOption" GroupName="ChargeMode" Tag="0" AutomationProperties.Name="自定义" Style="{StaticResource OptionRadioButtonStyle}" IsEnabled="{Binding CanConfigureCharge}" Checked="ChargeModeOption_Checked">
+             <Grid ColumnSpacing="12"><Grid.ColumnDefinitions><ColumnDefinition Width="28"/><ColumnDefinition Width="*"/></Grid.ColumnDefinitions>
+              <FontIcon Glyph="&#xE713;" FontSize="22" VerticalAlignment="Center"/>
+              <TextBlock Grid.Column="1" Text="自定义" Style="{StaticResource BodyStrongTextBlockStyle}" VerticalAlignment="Center"/>
+             </Grid>
+            </RadioButton>
+            <Grid x:Name="CustomChargeEditor" Visibility="Collapsed" ColumnSpacing="10">
+             <Grid.ColumnDefinitions><ColumnDefinition Width="*"/><ColumnDefinition Width="*"/></Grid.ColumnDefinitions>
+             <ComboBox x:Name="CustomChargeStartBox" Header="恢复充电" HorizontalAlignment="Stretch" MaxDropDownHeight="320" SelectionChanged="CustomChargeSelection_Changed"/>
+             <ComboBox x:Name="CustomChargeEndBox" Grid.Column="1" Header="停止充电" HorizontalAlignment="Stretch" MaxDropDownHeight="320" SelectionChanged="CustomChargeSelection_Changed"/>
+            </Grid>
+            <TextBlock Text="{Binding ChargeModeHint}" Style="{StaticResource SecondaryTextStyle}" Visibility="{Binding ChargeHintVisibility}"/>
+           </StackPanel>
+           <Grid Grid.Row="2" ColumnSpacing="8">
+            <Grid.ColumnDefinitions><ColumnDefinition Width="*"/><ColumnDefinition Width="Auto"/></Grid.ColumnDefinitions>
+            <TextBlock Text="{Binding ChargeDesiredStatus}" Style="{StaticResource SecondaryTextStyle}" VerticalAlignment="Center"/>
+            <Button Grid.Column="1" Content="保存配置" Style="{StaticResource PrimaryActionButtonStyle}" Click="ApplySelectedChargeMode_Click" IsEnabled="{Binding CanApplySelectedChargeMode}"/>
+           </Grid>
+          </Grid>
+         </Border>
+
+         <Border x:Name="PerformanceSettingsCard" Grid.Column="1" MinHeight="440" Style="{StaticResource AppCardStyle}">
+          <Grid RowSpacing="16">
+           <Grid.RowDefinitions><RowDefinition Height="Auto"/><RowDefinition Height="*"/><RowDefinition Height="Auto"/></Grid.RowDefinitions>
+           <TextBlock Text="性能模式" Style="{StaticResource SectionTitleTextStyle}"/>
+           <StackPanel Grid.Row="1" Spacing="8">
+            <RadioButton x:Name="SmartPerformanceOption" GroupName="PerformanceMode" Tag="1" AutomationProperties.Name="智能" Style="{StaticResource OptionRadioButtonStyle}" IsEnabled="{Binding CanConfigurePerformance}" Checked="PerformanceModeOption_Checked">
+             <Grid ColumnSpacing="12"><Grid.ColumnDefinitions><ColumnDefinition Width="28"/><ColumnDefinition Width="*"/></Grid.ColumnDefinitions>
+              <FontIcon Glyph="&#xE9CA;" FontSize="22" VerticalAlignment="Center"/>
+              <TextBlock Grid.Column="1" Text="智能" Style="{StaticResource BodyStrongTextBlockStyle}" VerticalAlignment="Center"/>
+             </Grid>
+            </RadioButton>
+            <RadioButton x:Name="HighPerformanceOption" GroupName="PerformanceMode" Tag="2" AutomationProperties.Name="高能" Style="{StaticResource OptionRadioButtonStyle}" IsEnabled="{Binding CanSelectHighPerformance}" Checked="PerformanceModeOption_Checked">
+             <Grid ColumnSpacing="12"><Grid.ColumnDefinitions><ColumnDefinition Width="28"/><ColumnDefinition Width="*"/></Grid.ColumnDefinitions>
+              <FontIcon Glyph="&#xE945;" FontSize="22" VerticalAlignment="Center"/>
+              <TextBlock Grid.Column="1" Text="高能" Style="{StaticResource BodyStrongTextBlockStyle}" VerticalAlignment="Center"/>
+             </Grid>
+            </RadioButton>
+            <TextBlock Text="{Binding PerformanceRequirementText}" Style="{StaticResource SecondaryTextStyle}" Visibility="{Binding PerformanceHintVisibility}" MaxLines="3"/>
+           </StackPanel>
+           <Grid Grid.Row="2" ColumnSpacing="8">
+            <Grid.ColumnDefinitions><ColumnDefinition Width="*"/><ColumnDefinition Width="Auto"/></Grid.ColumnDefinitions>
+            <TextBlock Text="{Binding PerformanceDesiredStatus}" Style="{StaticResource SecondaryTextStyle}" VerticalAlignment="Center"/>
+            <Button Grid.Column="1" Content="保存配置" Style="{StaticResource PrimaryActionButtonStyle}" Click="ApplyPerformanceMode_Click" IsEnabled="{Binding CanApplyPerformance}"/>
+           </Grid>
+          </Grid>
+         </Border>
+        </Grid>
+       </StackPanel>
       </Grid>
-     </StackPanel>
-     <StackPanel Spacing="12">
-      <TextBlock Text="性能模式" Style="{StaticResource SectionTitleTextStyle}"/>
-      <Grid ColumnSpacing="10">
-       <Grid.ColumnDefinitions><ColumnDefinition Width="*"/><ColumnDefinition Width="*"/></Grid.ColumnDefinitions>
-       <RadioButton x:Name="SmartPerformanceOption"  GroupName="PerformanceMode" Tag="1" AutomationProperties.Name="智能" Style="{StaticResource OptionRadioButtonStyle}" IsEnabled="{Binding CanConfigurePerformance}" Checked="PerformanceModeOption_Checked">
-    <Grid ColumnSpacing="16"><Grid.ColumnDefinitions><ColumnDefinition Width="28"/><ColumnDefinition Width="*"/></Grid.ColumnDefinitions>
-        <FontIcon Glyph="&#xE9CA;" FontSize="22" VerticalAlignment="Center"/>
-        <TextBlock Grid.Column="1" Text="智能" Style="{StaticResource BodyStrongTextBlockStyle}" VerticalAlignment="Center"/>
-    </Grid>
-</RadioButton>
-       <RadioButton x:Name="HighPerformanceOption" Grid.Column="1" GroupName="PerformanceMode" Tag="2" AutomationProperties.Name="高能" Style="{StaticResource OptionRadioButtonStyle}" IsEnabled="{Binding CanSelectHighPerformance}" Checked="PerformanceModeOption_Checked">
-    <Grid ColumnSpacing="16"><Grid.ColumnDefinitions><ColumnDefinition Width="28"/><ColumnDefinition Width="*"/></Grid.ColumnDefinitions>
-        <FontIcon Glyph="&#xE945;" FontSize="22" VerticalAlignment="Center"/>
-        <TextBlock Grid.Column="1" Text="高能" Style="{StaticResource BodyStrongTextBlockStyle}" VerticalAlignment="Center"/>
-    </Grid>
-</RadioButton>
+     </ScrollViewer>
+
+     <ScrollViewer x:Name="SettingsView" Visibility="Collapsed" HorizontalScrollBarVisibility="Disabled" HorizontalScrollMode="Disabled" HorizontalContentAlignment="Stretch" SizeChanged="PageViewport_SizeChanged">
+      <Grid HorizontalAlignment="Stretch">
+       <StackPanel x:Name="SettingsContent" Padding="28,24,28,32" HorizontalAlignment="Center" Spacing="16">
+        <TextBlock Text="设置" Style="{StaticResource PageTitleTextStyle}"/>
+        <TextBlock Text="常规" Style="{StaticResource SectionTitleTextStyle}" Margin="0,8,0,0"/>
+        <Border Style="{StaticResource SettingsGroupStyle}">
+         <StackPanel>
+          <Border Style="{StaticResource SettingsRowStyle}">
+           <Grid ColumnSpacing="20">
+            <Grid.ColumnDefinitions><ColumnDefinition Width="44"/><ColumnDefinition Width="*"/><ColumnDefinition Width="Auto"/></Grid.ColumnDefinitions>
+            <FontIcon Glyph="&#xE7F4;" FontSize="20" VerticalAlignment="Center" HorizontalAlignment="Center"/>
+            <StackPanel Grid.Column="1" Spacing="3" VerticalAlignment="Center">
+             <TextBlock Text="开机自动维护配置" Style="{StaticResource BodyStrongTextBlockStyle}"/>
+             <TextBlock Text="{Binding AutoReconcileHint}" Style="{StaticResource SecondaryTextStyle}"/>
+            </StackPanel>
+            <ToggleSwitch x:Name="AutoReconcileToggle" Grid.Column="2" Toggled="AutoReconcileToggle_Toggled" IsEnabled="{Binding IsServiceAvailable}" VerticalAlignment="Center"/>
+           </Grid>
+          </Border>
+          <Border Height="1" Margin="20,0" Background="{ThemeResource CardStrokeColorDefaultBrush}"/>
+          <Border Style="{StaticResource SettingsRowStyle}">
+           <Grid ColumnSpacing="20">
+            <Grid.ColumnDefinitions><ColumnDefinition Width="44"/><ColumnDefinition Width="*"/><ColumnDefinition Width="Auto"/></Grid.ColumnDefinitions>
+            <FontIcon Glyph="&#xE7F4;" FontSize="20" VerticalAlignment="Center" HorizontalAlignment="Center"/>
+            <TextBlock Grid.Column="1" Text="关闭时驻留托盘" Style="{StaticResource BodyStrongTextBlockStyle}" VerticalAlignment="Center"/>
+            <ToggleSwitch x:Name="CloseToTrayToggle" Grid.Column="2" Toggled="CloseToTrayToggle_Toggled" VerticalAlignment="Center"/>
+           </Grid>
+          </Border>
+          <Border Height="1" Margin="20,0" Background="{ThemeResource CardStrokeColorDefaultBrush}"/>
+          <Border Style="{StaticResource SettingsRowStyle}">
+           <Grid ColumnSpacing="20">
+            <Grid.ColumnDefinitions><ColumnDefinition Width="44"/><ColumnDefinition Width="*"/><ColumnDefinition Width="Auto"/></Grid.ColumnDefinitions>
+            <FontIcon Glyph="&#xE790;" FontSize="20" VerticalAlignment="Center" HorizontalAlignment="Center"/>
+            <StackPanel Grid.Column="1" Spacing="3" VerticalAlignment="Center">
+             <TextBlock Text="主题" Style="{StaticResource BodyStrongTextBlockStyle}"/>
+             <TextBlock x:Name="ThemeSettingsHint" Style="{StaticResource SecondaryTextStyle}"/>
+            </StackPanel>
+            <ComboBox x:Name="ThemeSelector" Grid.Column="2" MinWidth="150" SelectionChanged="ThemeSelector_SelectionChanged" VerticalAlignment="Center">
+             <ComboBoxItem Tag="System">跟随系统</ComboBoxItem>
+             <ComboBoxItem Tag="Light">浅色</ComboBoxItem>
+             <ComboBoxItem Tag="Dark">深色</ComboBoxItem>
+            </ComboBox>
+           </Grid>
+          </Border>
+         </StackPanel>
+        </Border>
+        <TextBlock Text="支持" Style="{StaticResource SectionTitleTextStyle}" Margin="0,12,0,0"/>
+        <Border Style="{StaticResource SettingsGroupStyle}">
+         <Border Style="{StaticResource SettingsRowStyle}">
+          <Grid ColumnSpacing="20">
+           <Grid.ColumnDefinitions><ColumnDefinition Width="44"/><ColumnDefinition Width="*"/><ColumnDefinition Width="Auto"/></Grid.ColumnDefinitions>
+           <SymbolIcon Symbol="Repair" VerticalAlignment="Center" HorizontalAlignment="Center"/>
+           <TextBlock Grid.Column="1" Text="故障排查" Style="{StaticResource BodyStrongTextBlockStyle}" VerticalAlignment="Center"/>
+           <Button Grid.Column="2" Content="查看诊断" Click="ShowDiagnostics_Click" VerticalAlignment="Center"/>
+          </Grid>
+         </Border>
+        </Border>
+        <TextBlock x:Name="TraySettingsHint" Style="{StaticResource SecondaryTextStyle}" Margin="0,4,0,0"/>
+       </StackPanel>
       </Grid>
-      <TextBlock Text="{Binding PerformanceRequirementText}" Style="{StaticResource SecondaryTextStyle}"/>
-      <Button Content="保存性能配置" HorizontalAlignment="Right" Style="{StaticResource PrimaryActionButtonStyle}" Click="ApplyPerformanceMode_Click" IsEnabled="{Binding CanApplyPerformance}"/>
-     </StackPanel>
-    </StackPanel>
+     </ScrollViewer>
     </Grid>
-   </ScrollViewer>
-                <Grid x:Name="SettingsView" Grid.Row="1" Visibility="Collapsed">
-                    <ScrollViewer HorizontalScrollBarVisibility="Disabled" HorizontalScrollMode="Disabled" HorizontalContentAlignment="Stretch" SizeChanged="PageViewport_SizeChanged">
-                        <Grid HorizontalAlignment="Stretch">
-                        <StackPanel x:Name="SettingsContent" Padding="32,24,32,32" HorizontalAlignment="Center" Spacing="16">
-                            <StackPanel.Transitions><TransitionCollection><EntranceThemeTransition/></TransitionCollection></StackPanel.Transitions>
-                            <StackPanel Spacing="4" Margin="0,0,0,4">
-                                <Button Content="返回" Click="BackToDashboard_Click" Margin="0,0,0,12"/><TextBlock Text="设置" Style="{StaticResource PageTitleTextStyle}" />
-                            </StackPanel>
-
-                            <TextBlock Text="常规" Style="{StaticResource SectionTitleTextStyle}" Margin="0,8,0,0" />
-                            <Border Style="{StaticResource SettingsGroupStyle}">
-                                <StackPanel>
-                                    <Border Style="{StaticResource SettingsRowStyle}">
-                                        <Grid ColumnSpacing="20">
-                                            <Grid.ColumnDefinitions>
-                                                <ColumnDefinition Width="44" />
-                                                <ColumnDefinition Width="*" />
-                                                <ColumnDefinition Width="Auto" />
-                                            </Grid.ColumnDefinitions>
-                                            <FontIcon Glyph="&#xE7F4;" FontSize="20" VerticalAlignment="Center" HorizontalAlignment="Center" />
-                                            <StackPanel Grid.Column="1" Spacing="3" VerticalAlignment="Center">
-                                                <TextBlock Text="开机自动维护配置" Style="{StaticResource BodyStrongTextBlockStyle}" />
-                                                <TextBlock Text="{Binding AutoReconcileHint}" Style="{StaticResource SecondaryTextStyle}" />
-                                            </StackPanel>
-                                            <ToggleSwitch x:Name="AutoReconcileToggle" Grid.Column="2" Toggled="AutoReconcileToggle_Toggled" IsEnabled="{Binding IsServiceAvailable}" VerticalAlignment="Center" />
-                                        </Grid>
-                                    </Border>
-                                    <Border Height="1" Margin="20,0" Background="{ThemeResource CardStrokeColorDefaultBrush}" />
-                                    <Border Style="{StaticResource SettingsRowStyle}">
-                                        <Grid ColumnSpacing="20">
-                                            <Grid.ColumnDefinitions>
-                                                <ColumnDefinition Width="44" />
-                                                <ColumnDefinition Width="*" />
-                                                <ColumnDefinition Width="Auto" />
-                                            </Grid.ColumnDefinitions>
-                                            <FontIcon Glyph="&#xE7F4;" FontSize="20" VerticalAlignment="Center" HorizontalAlignment="Center" />
-                                            <StackPanel Grid.Column="1" Spacing="3" VerticalAlignment="Center">
-                                                <TextBlock Text="关闭时驻留托盘" Style="{StaticResource BodyStrongTextBlockStyle}" />
-                                            </StackPanel>
-                                            <ToggleSwitch x:Name="CloseToTrayToggle" Grid.Column="2" Toggled="CloseToTrayToggle_Toggled" VerticalAlignment="Center" />
-                                        </Grid>
-                                    </Border>
-                                    <Border Height="1" Margin="20,0" Background="{ThemeResource CardStrokeColorDefaultBrush}" />
-                                    <Border Style="{StaticResource SettingsRowStyle}">
-                                        <Grid ColumnSpacing="20">
-                                            <Grid.ColumnDefinitions>
-                                                <ColumnDefinition Width="44" />
-                                                <ColumnDefinition Width="*" />
-                                                <ColumnDefinition Width="Auto" />
-                                            </Grid.ColumnDefinitions>
-                                            <FontIcon Glyph="&#xE790;" FontSize="20" VerticalAlignment="Center" HorizontalAlignment="Center" />
-                                            <StackPanel Grid.Column="1" Spacing="3" VerticalAlignment="Center">
-                                                <TextBlock Text="主题" Style="{StaticResource BodyStrongTextBlockStyle}" />
-                                                <TextBlock x:Name="ThemeSettingsHint" Style="{StaticResource SecondaryTextStyle}" />
-                                            </StackPanel>
-                                            <ComboBox x:Name="ThemeSelector" Grid.Column="2" MinWidth="150" SelectionChanged="ThemeSelector_SelectionChanged" VerticalAlignment="Center">
-                                                <ComboBoxItem Tag="System">跟随系统</ComboBoxItem>
-                                                <ComboBoxItem Tag="Light">浅色</ComboBoxItem>
-                                                <ComboBoxItem Tag="Dark">深色</ComboBoxItem>
-                                            </ComboBox>
-                                        </Grid>
-                                    </Border>
-                                </StackPanel>
-                            </Border>
-
-                            <TextBlock Text="支持" Style="{StaticResource SectionTitleTextStyle}" Margin="0,12,0,0" />
-                            <Border Style="{StaticResource SettingsGroupStyle}">
-                                <Border Style="{StaticResource SettingsRowStyle}">
-                                    <Grid ColumnSpacing="20">
-                                        <Grid.ColumnDefinitions>
-                                            <ColumnDefinition Width="44" />
-                                            <ColumnDefinition Width="*" />
-                                            <ColumnDefinition Width="Auto" />
-                                        </Grid.ColumnDefinitions>
-                                        <SymbolIcon Symbol="Repair" VerticalAlignment="Center" HorizontalAlignment="Center" />
-                                        <StackPanel Grid.Column="1" Spacing="3" VerticalAlignment="Center">
-                                            <TextBlock Text="故障排查" Style="{StaticResource BodyStrongTextBlockStyle}" />
-                                        </StackPanel>
-                                        <Button Grid.Column="2" Content="查看诊断" Click="ShowDiagnostics_Click" VerticalAlignment="Center" />
-                                    </Grid>
-                                </Border>
-                            </Border>
-
-                            <TextBlock x:Name="TraySettingsHint" Style="{StaticResource SecondaryTextStyle}" Margin="0,4,0,0" />
-                        </StackPanel>
-                        </Grid>
-                    </ScrollViewer>
-                </Grid>
-
+   </controls:NavigationView>
   </Grid>
  </Grid>
 </Window>
