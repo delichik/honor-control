@@ -68,6 +68,16 @@ jobs:
           --self-contained false
           --output '${{ github.workspace }}\artifacts\HonorControl-service'
 
+      # 诊断工具直接编译服务端源码（BatteryService / HistoryStore），
+      # 因此服务端改了内部接口而没同步工具时会在这里失败——这是刻意的。
+      - name: Build diagnostic probes
+        shell: pwsh
+        run: |
+          dotnet build tools/BatteryProbe/BatteryProbe.csproj --configuration Release
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          dotnet build tools/HistoryProbe/HistoryProbe.csproj --configuration Release
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+
       - name: Parse installer scripts
         shell: pwsh
         run: |

@@ -1,0 +1,20 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup>
+    <OutputType>Exe</OutputType>
+    <TargetFramework>net8.0-windows</TargetFramework>
+    <RuntimeIdentifier>win-x64</RuntimeIdentifier>
+    <PlatformTarget>x64</PlatformTarget>
+    <Nullable>enable</Nullable>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <AssemblyName>BatteryProbe</AssemblyName>
+    <RootNamespace>HonorControl.Tools.BatteryProbe</RootNamespace>
+  </PropertyGroup>
+  <ItemGroup>
+    <PackageReference Include="Microsoft.Management.Infrastructure" Version="3.0.0" />
+  </ItemGroup>
+  <ItemGroup>
+    <!-- 直接编译服务端的电池读取实现：探针要验证的是发布代码本身，
+         而不是另抄一份"看起来一样"的 P/Invoke。 -->
+    <Compile Include="..\..\src\HonorControl.Service\Hardware\BatteryService.cs" Link="BatteryService.cs" />
+  </ItemGroup>
+</Project>

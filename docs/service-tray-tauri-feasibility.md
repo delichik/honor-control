@@ -300,6 +300,28 @@ installer/                   在线安装器 + 依赖预检 + 服务注册/备�
 
 现有契约 `ServiceContract.cs` 只覆盖前 4 项加错误状态，**其余全部要新增**。
 
+### 5.1.1 实测结果（2026-10，HONOR BCC-N / Windows 11 build 26200）
+
+上表里的 ⚠️ 已经在真机上跑过一遍（只读），结论如下——**其中两项从此不再是示例数据**：
+
+| 指标 | 实测结论 | 数据源 |
+|---|---|---|
+| 电量、插电状态 | ✅ 可用 | `GetSystemPowerStatus` + `CallNtPowerInformation` |
+| **电池功率（带符号）** | ✅ **可用**：`SYSTEM_BATTERY_STATE.Rate` 是**有符号毫瓦**，实测充电中 `+80.6 W`；与 `root\wmi:BatteryStatus.ChargeRate` 完全同值 | `powrprof!CallNtPowerInformation(SystemBatteryState)` |
+| **循环次数** | ✅ **可用**：实测 3 | `root\wmi:BatteryCycleCount` |
+| 满充容量 | ✅ 可用：实测 92.04 Wh | `SYSTEM_BATTERY_STATE.MaxCapacity`（注意：**它就是当前满充容量**） |
+| 电池温度 | ❌ 拿不到：`root\wmi:BatteryTemperature` 类存在但**没有实例** | — |
+| 电池健康度 / 设计容量 | ❌ 拿不到：`BatteryStaticData` 无实例、`Win32_Battery.DesignCapacity` 为空；把 `MaxCapacity` 当设计容量会恒得 100% | — |
+| 适配器功率 | ❌ 拿不到：`0x0902` 只给电压（实测 20000 mV），电流命令未确认 | — |
+| CPU/GPU/SSD 温度 | ❌ 拿不到：`MSAcpi_ThermalZoneTemperature` 不可用、`Win32_TemperatureProbe` 与 `Win32_Fan` 均 0 实例、SMART（`MSStorageDriver_ATAPISmartData`）无实例 | — |
+| 风扇转速 | ⚠️ 仍未知：Win32 侧无来源；荣耀通道 `0x0802` 的语义需在服务（SYSTEM）里验证 | — |
+
+另一个实测发现：**`root\wmi:OemWMIMethod` 对非管理员拒绝访问**（HRESULT 0x80041003）。这意味着能力探测只能由服务自己做（它本来就以 SYSTEM 运行），面板与任何用户态工具都读不到荣耀通道。
+
+据此，服务端 v2 的采样器已经落地：`BatteryService`（电量/功率/容量）+ 1 Hz `TelemetrySampler` + 60 秒粒度 `HistoryStore`，
+并把上面每个 ❌ 写进 `Capabilities.MissingReason` 如实上报——服务不猜、不填估算值。
+两个只读诊断工具（`tools/BatteryProbe`、`tools/HistoryProbe`）直接编译服务端源码来验证真实读数与历史降采样。
+
 ### 5.2 "读不到就不展示"的三层契约
 
 UI 已经把降级做在三个层级上，服务侧必须配合：

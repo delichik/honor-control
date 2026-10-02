@@ -29,7 +29,7 @@ export function ChargeHistoryPage() {
         subtitle="以 0 为界：上方充电、下方放电"
         actions={
           <>
-            {simulated ? <MockBadge field="BatteryPowerW" /> : null}
+            {simulated ? <MockBadge reason="服务未连接或历史数据不足，这条曲线由前端的模拟模型生成，不代表真实硬件。" /> : null}
             <TabList selectedValue={rangeId} onTabSelect={(_, data) => setRangeId(data.value)}>
               {HISTORY_RANGES.map((item) => (
                 <Tab key={item.id} value={item.id}>{item.label}</Tab>

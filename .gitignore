@@ -4,3 +4,9 @@
 *.user
 *.suo
 .npm-cache/
+# 本地工具链与临时目录（本机没有 SDK/Rust 时自建的，不进仓库）
+.dotnet/
+.dotnet-home/
+.nuget-packages/
+.nuget-http-cache/
+.tmp/

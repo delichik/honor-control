@@ -37,6 +37,32 @@ internal sealed class ConfigurationStore
         lock (sync) return ReadDocument().Desired;
     }
 
+    /// <summary>托盘策略。托盘进程由服务或面板按它拉起，见 TrayPolicyMode 的说明。</summary>
+    public TrayPolicyMode LoadTrayPolicy()
+    {
+        lock (sync) return ReadDocument().TrayPolicy;
+    }
+
+    public TrayPolicyMode UpdateTrayPolicy(TrayPolicyMode policy)
+    {
+        lock (sync)
+        {
+            ServiceDocument document = ReadDocument();
+            WriteDocument(document with { TrayPolicy = policy });
+            return policy;
+        }
+    }
+
+    /// <summary>
+    /// 判断某个 SID 是否已经是配置拥有者——**不会**注册新拥有者。
+    /// 用于那些"只有拥有者能做、但不能顺手把调用方变成拥有者"的操作（例如停止服务）。
+    /// </summary>
+    public bool IsOwner(string? sid)
+    {
+        if (sid == null) return false;
+        lock (sync) return string.Equals(ReadDocument().OwnerSid, sid, StringComparison.OrdinalIgnoreCase);
+    }
+
     public DesiredConfiguration Update(Func<DesiredConfiguration, DesiredConfiguration> update)
     {
         lock (sync)
@@ -102,5 +128,11 @@ internal sealed class ConfigurationStore
     {
         public string? OwnerSid { get; init; }
         public DesiredConfiguration Desired { get; init; } = new();
+
+        /// <summary>
+        /// 托盘策略。默认 OnDemand：安装后还没有拥有者（归属由面板首次通信注册），
+        /// 这时如果默认 Always，服务会去拉起一个读不到任何策略的托盘进程，语义不成立。
+        /// </summary>
+        public TrayPolicyMode TrayPolicy { get; init; } = TrayPolicyMode.OnDemand;
     }
 }

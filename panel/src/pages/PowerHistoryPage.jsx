@@ -39,7 +39,7 @@ export function PowerHistoryPage() {
         subtitle="适配器输出功率与系统负载"
         actions={
           <>
-            {simulated ? <MockBadge field="AdapterPowerW" /> : null}
+            {simulated ? <MockBadge reason="服务未连接或历史数据不足，这条曲线由前端的模拟模型生成，不代表真实硬件。" /> : null}
             <TabList selectedValue={rangeId} onTabSelect={(_, data) => setRangeId(data.value)}>
               {HISTORY_RANGES.map((item) => (
                 <Tab key={item.id} value={item.id}>{item.label}</Tab>

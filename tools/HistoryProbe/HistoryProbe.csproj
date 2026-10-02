@@ -1,0 +1,20 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup>
+    <OutputType>Exe</OutputType>
+    <TargetFramework>net8.0-windows</TargetFramework>
+    <RuntimeIdentifier>win-x64</RuntimeIdentifier>
+    <PlatformTarget>x64</PlatformTarget>
+    <Nullable>enable</Nullable>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <AssemblyName>HistoryProbe</AssemblyName>
+    <RootNamespace>HonorControl.Tools.HistoryProbe</RootNamespace>
+  </PropertyGroup>
+  <ItemGroup>
+    <ProjectReference Include="..\..\src\HonorControl.Contracts\HonorControl.Contracts.csproj" />
+  </ItemGroup>
+  <ItemGroup>
+    <!-- 直接编译 HistoryStore 源码：它是 internal，且我们希望验证的就是这一份实现，
+         而不是复制一份出来单独测（那样测的就不是发布代码了）。 -->
+    <Compile Include="..\..\src\HonorControl.Service\Telemetry\HistoryStore.cs" Link="HistoryStore.cs" />
+  </ItemGroup>
+</Project>

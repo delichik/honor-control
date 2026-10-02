@@ -6,6 +6,7 @@ using System.Text.Json;
 using System.Runtime.InteropServices;
 using System.Diagnostics;
 using HonorControl.Contracts;
+using HonorControl.Service.Telemetry;
 using Microsoft.Extensions.Hosting;
 using Microsoft.Extensions.Logging;
 
@@ -15,13 +16,25 @@ internal sealed class PipeServer : BackgroundService
 {
     private readonly ConfigurationStore configuration;
     private readonly ReconciliationCoordinator coordinator;
+    private readonly TelemetrySampler telemetry;
+    private readonly HistoryStore history;
+    private readonly IHostApplicationLifetime lifetime;
     private readonly ILogger<PipeServer> logger;
     private readonly PipeSecurity security = CreateSecurity();
 
-    public PipeServer(ConfigurationStore configuration, ReconciliationCoordinator coordinator, ILogger<PipeServer> logger)
+    public PipeServer(
+        ConfigurationStore configuration,
+        ReconciliationCoordinator coordinator,
+        TelemetrySampler telemetry,
+        HistoryStore history,
+        IHostApplicationLifetime lifetime,
+        ILogger<PipeServer> logger)
     {
         this.configuration = configuration;
         this.coordinator = coordinator;
+        this.telemetry = telemetry;
+        this.history = history;
+        this.lifetime = lifetime;
         this.logger = logger;
     }
 
@@ -121,18 +134,61 @@ internal sealed class PipeServer : BackgroundService
                 ?? throw new InvalidDataException("请求为空。");
             if (request.Version != ServiceContract.ProtocolVersion)
                 throw new InvalidDataException("应用与服务的通信版本不一致，请重新安装应用。");
-            if (request.Command == "GetState")
-                return new(ServiceContract.ProtocolVersion, coordinator.Snapshot());
-            if (request.Desired == null)
-                throw new InvalidDataException("缺少配置内容。");
-            coordinator.Update(request.Command, request.Desired);
-            return new(ServiceContract.ProtocolVersion, coordinator.Snapshot());
+
+            switch (request.Command)
+            {
+                case "GetState":
+                    return new(ServiceContract.ProtocolVersion, coordinator.Snapshot());
+
+                case "GetTelemetry":
+                    return new(ServiceContract.ProtocolVersion, Telemetry: telemetry.Current);
+
+                case "GetCapabilities":
+                    return new(ServiceContract.ProtocolVersion, Capabilities: telemetry.Capabilities);
+
+                case "GetHistory":
+                    HistoryQuery query = request.History ?? new HistoryQuery("BatteryPower", "24h");
+                    return new(ServiceContract.ProtocolVersion, History: history.Query(query));
+
+                case "SetTrayPolicy":
+                    // 托盘策略只由面板写；托盘进程本身是只读客户端。
+                    coordinator.UpdateTrayPolicy(request.Desired?.TrayPolicy ?? TrayPolicyMode.OnDemand);
+                    return new(ServiceContract.ProtocolVersion, coordinator.Snapshot());
+
+                case "ShutdownService":
+                    // 由服务**自己**停止自己：托盘/面板都是中完整性进程，没有 SERVICE_STOP 权限，
+                    // 也不需要申请提权（见可行性文档 4.1）。先把响应写回去，再延迟退出，
+                    // 否则调用方只会看到连接被断开。
+                    ScheduleShutdown();
+                    return new(ServiceContract.ProtocolVersion, coordinator.Snapshot());
+
+                default:
+                    if (request.Desired == null)
+                        throw new InvalidDataException("缺少配置内容。");
+                    coordinator.Update(request.Command, request.Desired);
+                    return new(ServiceContract.ProtocolVersion, coordinator.Snapshot());
+            }
         }
         catch (Exception exception)
         {
             logger.LogWarning(exception, "Rejected service request");
             return new(ServiceContract.ProtocolVersion, Error: exception.Message);
         }
+    }
+
+    /// <summary>
+    /// 延迟一小会儿再停：给调用方留出收到响应的时间。
+    /// 只有配置拥有者能走到这里——归属校验在 <see cref="HandleClientAsync"/> 里已经完成
+    /// （第一个从活动控制台会话连接的 Windows 用户成为拥有者）。
+    /// </summary>
+    private void ScheduleShutdown()
+    {
+        logger.LogInformation("收到停止服务请求，准备退出。");
+        _ = Task.Run(async () =>
+        {
+            await Task.Delay(TimeSpan.FromMilliseconds(300));
+            lifetime.StopApplication();
+        });
     }
 
     private static async Task<string?> ReadRequestLineAsync(StreamReader reader, CancellationToken cancellationToken)
