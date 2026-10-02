@@ -24,11 +24,28 @@ installer/                          在线安装器与设备/依赖预检
 
 仓库通过 `global.json` 固定 .NET SDK `8.0.408`；界面使用 Windows App SDK `2.4.0`。
 
+### 控制面板（`panel/`）
+
+`panel/` 是重写中的控制面板：React + Fluent UI v9 的界面，Rust + Tauri 2 的外壳（负责命名管道与启动服务）。它不在 `HonorControl.sln` 里，也**尚未被打进安装器**——目前是并行开发的独立产物。
+
+```bash
+cd panel
+npm install
+npm run dev        # 浏览器里直接看全部页面：没有 Tauri 运行时，自动使用示例数据
+npm run verify     # 校验 Fluent token/图标名，以及"示例数据只从 queries.js 注入"等代码约定
+npm run build      # 构建前端产物到 panel/dist
+npm run tauri dev  # 真正的桌面窗口（需要 Rust 工具链、MSVC 与 WebView2）
+```
+
+前端只需要 Node.js（≥ 22）；桌面外壳与打包额外需要 Rust 与 MSVC 生成工具。服务拿不到的指标（CPU/GPU 温度、风扇转速、适配器功率等）当前用**示例数据占位并带"示例"角标**，原因与出处集中记在 `panel/src/data/mock/sources.js`；服务端协议现状（v1）与面板的降级策略见 `panel/README.md`。
+
 GitHub Actions 负责发布和打包。安装器要求管理员权限以注册服务；日常界面以普通用户权限运行。CI 编译成功不等于目标机器上的安装、界面、WMI 或服务验证通过。
 
 ## GitHub Actions 构建
 
-仓库包含 `.github/workflows/build-windows.yml`。推送程序源码、安装器、解决方案或该工作流的改动后会自动构建；也可在 GitHub 的 **Actions → Build Honor Control → Run workflow** 手动触发。
+仓库包含 `.github/workflows/build-windows.yml`。推送程序源码、控制面板、安装器、解决方案或该工作流的改动后会自动构建；也可在 GitHub 的 **Actions → Build Honor Control → Run workflow** 手动触发。
+
+工作流有三个 job：`build` 发布框架依赖版 WinUI 程序与服务并编译 `HonorControl-Setup-x64.exe`；`panel` 安装面板依赖、跑代码约定校验并构建前端产物；`panel-desktop` 用 Rust 工具链编译 Tauri 外壳并打包 NSIS——Rust 外壳尚未在真实工具链上验证过，因此该 job 暂时允许失败（`continue-on-error`），首次跑绿后应删除这一行。
 
 工作流发布框架依赖版 WinUI 程序与服务，编译 `HonorControl-Setup-x64.exe`。安装包不包含 .NET Runtime 或 Windows App Runtime；安装前先检查 Windows 11 x64、荣耀厂商标识和 HWMI 只读回读，再检查 x64 `Microsoft.NETCore.App` 8.0（任一兼容补丁版本）与当前登录用户注册的 Windows App Runtime 2.4。只有缺少依赖时才显示下载进度、从微软官方下载并安装；不要求 .NET Desktop Runtime 或特定的 8.0.31 补丁版本。下载的 .NET 安装器校验官方 SHA-512，两者均校验微软数字签名。网络或校验失败会阻止应用文件安装。
 

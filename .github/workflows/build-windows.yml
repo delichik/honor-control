@@ -7,6 +7,7 @@ on:
       - 'src/HonorControl/**'
       - 'src/HonorControl.Contracts/**'
       - 'src/HonorControl.Service/**'
+      - 'panel/**'
       - 'installer/**'
       - 'HonorControl.sln'
       - 'global.json'
@@ -125,4 +126,88 @@ jobs:
           name: HonorControl-Setup-x64
           path: artifacts/installer/HonorControl-Setup-x64.exe
           if-no-files-found: error
+          retention-days: 14
+
+  panel:
+    name: Build control panel (React)
+    runs-on: windows-2022
+    timeout-minutes: 15
+
+    steps:
+      - name: Check out source
+        uses: actions/checkout@v4
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '24'
+          cache: npm
+          cache-dependency-path: panel/package-lock.json
+
+      - name: Install panel dependencies
+        working-directory: panel
+        run: npm ci --no-audit --no-fund
+
+      # 守卫：Fluent token/图标名必须真实存在；示例数据只允许从 queries.js 注入、
+      # 原生调用只允许走 transport.js。这两条是代码约定，靠人记不住，交给 CI。
+      - name: Verify panel invariants
+        working-directory: panel
+        run: npm run verify
+
+      - name: Build panel frontend
+        working-directory: panel
+        run: npm run build
+
+      - name: Upload panel frontend
+        uses: actions/upload-artifact@v4
+        with:
+          name: HonorControl-panel-frontend
+          path: panel/dist
+          if-no-files-found: error
+          retention-days: 14
+
+  panel-desktop:
+    name: Compile panel shell (Rust + Tauri)
+    runs-on: windows-2022
+    timeout-minutes: 45
+    # ⚠️ Rust 外壳尚未在真实工具链上编译过（开发机没有 Rust/MSVC）。这个 job 就是用来
+    # 首次验证它的：先看它的日志把编译错误修掉，全绿之后**删掉下面这行**，让它真正拦住回归。
+    continue-on-error: true
+
+    steps:
+      - name: Check out source
+        uses: actions/checkout@v4
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '24'
+          cache: npm
+          cache-dependency-path: panel/package-lock.json
+
+      - name: Install panel dependencies
+        working-directory: panel
+        run: npm ci --no-audit --no-fund
+
+      - name: Set up Rust
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: Cache Rust build
+        uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: panel/src-tauri
+
+      # 打包 NSIS 安装包；tauri.conf.json 的 beforeBuildCommand 会先跑 npm run build。
+      # 注意：这一步产出的只是"面板自己的安装包"，服务与托盘的整合仍在 Inno Setup 里
+      # （见 docs/service-tray-tauri-feasibility.md 4.7 与 7 的安装器改造项）。
+      - name: Build panel (Tauri, NSIS)
+        working-directory: panel
+        run: npm run tauri build
+
+      - name: Upload panel bundle
+        uses: actions/upload-artifact@v4
+        with:
+          name: HonorControl-panel-nsis
+          path: panel/src-tauri/target/release/bundle/nsis/*.exe
+          if-no-files-found: ignore
           retention-days: 14

@@ -1,0 +1,18 @@
+# Honor Control 控制面板（Tauri v2 外壳）。
+# 本 crate 只做一件事：把前端的 invoke 转发给 Honor Control Windows 服务（命名管道）。
+# ⚠️ 待核实：下面的版本号必须与 `npm create tauri-app` 针对**本机已安装的 Tauri CLI** 生成的模板对齐，
+#    尤其是 tauri / tauri-build 的次版本（package.json 里 @tauri-apps/cli 为 ^2.12.1）。
+#    首次 `cargo check` 前请用生成模板的版本号覆盖这里，避免 API 与宏签名不匹配。
+[package]
+name = "honor-control-panel"
+version = "0.1.0"
+edition = "2021"
+
+[build-dependencies]
+tauri-build = { version = "2", features = [] }
+
+[dependencies]
+tauri = { version = "2", features = [] }
+# serde 仅用于给请求体派生 Serialize（靠 rename_all = "PascalCase" 固定属性名）。
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"

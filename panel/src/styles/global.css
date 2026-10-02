@@ -1,0 +1,85 @@
+/* 面板全局样式：只放真正全局的东西（底色、字体、滚动条、共享动画），
+   组件样式一律用 Fluent 的 makeStyles，避免两套样式体系打架。 */
+
+:root {
+  color-scheme: light;
+  /* Mica 不可用时的回退底色（见 App 里的 .app-backdrop） */
+  --panel-backdrop: rgba(243, 243, 243, 0.86);
+  /* 温度色阶：温度条、指针、图例共用一条渐变，保证任何地方读到的颜色含义一致 */
+  --temp-gradient: linear-gradient(90deg, #3b82f6 0%, #22c55e 35%, #eab308 70%, #ef4444 100%);
+}
+
+:root[data-theme='dark'] {
+  color-scheme: dark;
+  --panel-backdrop: rgba(26, 26, 26, 0.86);
+}
+
+html,
+body,
+#root {
+  height: 100%;
+  margin: 0;
+}
+
+body {
+  font-family: 'Segoe UI Variable Text', 'Segoe UI', system-ui, -apple-system, 'Microsoft YaHei UI',
+    sans-serif;
+  /* 透明背景让 Tauri 的 Mica 材质透出来；没有 Mica 时由 .app-backdrop 兜底 */
+  background: transparent;
+  overflow: hidden;
+}
+
+/* 细滚动条，贴近 WinUI 的观感 */
+::-webkit-scrollbar {
+  width: 10px;
+  height: 10px;
+}
+
+::-webkit-scrollbar-thumb {
+  background: rgba(128, 128, 128, 0.4);
+  border-radius: 6px;
+  border: 3px solid transparent;
+  background-clip: content-box;
+}
+
+::-webkit-scrollbar-thumb:hover {
+  background: rgba(128, 128, 128, 0.65);
+  background-clip: content-box;
+}
+
+@keyframes panel-fan-spin {
+  to {
+    transform: rotate(360deg);
+  }
+}
+
+@keyframes panel-flow-dash {
+  to {
+    stroke-dashoffset: -24;
+  }
+}
+
+/* 功率流向图的"流动虚线"：用 background-position 位移实现，
+   方向的表达交给 animation-direction（充入向下、放电向上）。 */
+@keyframes panel-wire-flow {
+  to {
+    background-position: 16px 0;
+  }
+}
+
+@keyframes panel-wire-flow-vertical {
+  to {
+    background-position: 0 16px;
+  }
+}
+
+/* 动画只表达"在流动/在转"，不承载数据；转速快慢用 duration 控制 */
+.panel-flow-active {
+  animation: panel-flow-dash 1.2s linear infinite;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .panel-flow-active {
+    animation-duration: 4s;
+  }
+}
