@@ -11,9 +11,29 @@ param(
 $ErrorActionPreference = 'Stop'
 $name = 'HonorControlService'
 
+# Runs a native tool and reports its exit code plus its output.
+# Windows PowerShell 5.1 turns a native command's stderr into error records, and with
+# $ErrorActionPreference = 'Stop' (set at the top of this script) that becomes a TERMINATING error
+# before the exit code can be inspected. sc.exe and schtasks.exe both write to stderr when they fail,
+# so relax the preference locally and decide from the exit code instead.
+function Invoke-Native([string]$executable, [string[]]$arguments) {
+    $previous = $ErrorActionPreference
+    $ErrorActionPreference = 'Continue'
+    try {
+        $output = & $executable @arguments 2>&1
+        $code = $LASTEXITCODE
+        return [pscustomobject]@{ ExitCode = $code; Output = @($output) }
+    }
+    finally {
+        $ErrorActionPreference = $previous
+    }
+}
+
 function Invoke-ServiceControl([string[]]$arguments) {
-    & "$env:WINDIR\System32\sc.exe" @arguments | Out-Null
-    if ($LASTEXITCODE -ne 0) { throw "Service control failed: sc.exe $($arguments[0]), exit code $LASTEXITCODE." }
+    $result = Invoke-Native "$env:WINDIR\System32\sc.exe" $arguments
+    if ($result.ExitCode -ne 0) {
+        throw "Service control failed: sc.exe $($arguments[0]), exit code $($result.ExitCode): $($result.Output -join ' / ')"
+    }
 }
 
 function Set-ServiceRegistration([string]$path, [bool]$exists) {
@@ -46,12 +66,25 @@ function Assert-ServiceReady {
 # not running can only go through the SCM. This adds one ACE to the service DACL: allow
 # interactive users to start it (RP = SERVICE_START). It deliberately does NOT grant
 # stop permission (WP): the tray menu asks the service to stop itself over the pipe.
-function Grant-ServiceStartToUsers {
-    $current = (& "$env:WINDIR\System32\sc.exe" sdshow $name | Select-Object -First 1)
-    if ($LASTEXITCODE -ne 0 -or [string]::IsNullOrWhiteSpace($current)) {
-        throw 'Unable to read the service security descriptor.'
+# Reads the service SDDL.
+# sc.exe sdshow prints a LEADING BLANK LINE and only then the SDDL, so taking "the first line"
+# yields an empty string and looks like a failure. Filter for the line that actually starts
+# with "D:" instead. Also capture the whole output before filtering: running a native command
+# through a truncated pipeline (Select-Object -First 1) makes $LASTEXITCODE unreliable.
+function Get-ServiceSecurityDescriptor([string]$serviceName) {
+    $result = Invoke-Native "$env:WINDIR\System32\sc.exe" @('sdshow', $serviceName)
+    if ($result.ExitCode -ne 0) {
+        throw "sc.exe sdshow $serviceName failed with exit code $($result.ExitCode): $($result.Output -join ' / ')"
     }
-    $current = $current.Trim()
+    $descriptor = $result.Output | Where-Object { $_ -match '^D:' } | Select-Object -First 1
+    if ([string]::IsNullOrWhiteSpace($descriptor)) {
+        throw "sc.exe sdshow $serviceName returned no security descriptor: $($result.Output -join ' / ')"
+    }
+    return ([string]$descriptor).Trim()
+}
+
+function Grant-ServiceStartToUsers {
+    $current = Get-ServiceSecurityDescriptor $name
     if ($current -match '\(A;;RP;;;I[UU]\)') { return }  # Idempotent: do not insert the ACE twice when reinstalling.
     if (-not $current.StartsWith('D:')) { throw 'Unexpected service security descriptor format.' }
 
@@ -59,7 +92,7 @@ function Grant-ServiceStartToUsers {
     $updated = 'D:(A;;RP;;;IU)' + $current.Substring(2)
     Invoke-ServiceControl @('sdset', $name, $updated)
 
-    $verify = (& "$env:WINDIR\System32\sc.exe" sdshow $name | Select-Object -First 1)
+    $verify = Get-ServiceSecurityDescriptor $name
     if ($verify -notmatch '\(A;;RP;;;I[UU]\)') { throw 'Granting SERVICE_START did not take effect.' }
 }
 
@@ -80,16 +113,21 @@ function Set-TrayTaskRegistration([string]$path, [string]$user) {
     $arguments = @('/create', '/tn', 'HonorControlTrayHost', '/tr', $action, '/sc', 'onlogon', '/f')
     if (-not [string]::IsNullOrWhiteSpace($user)) { $arguments += @('/ru', $user, '/it') }
 
-    & "$env:WINDIR\System32\schtasks.exe" @arguments | Out-Null
-    if ($LASTEXITCODE -ne 0) { throw "Registering the tray task failed with exit code $LASTEXITCODE." }
+    $create = Invoke-Native "$env:WINDIR\System32\schtasks.exe" $arguments
+    if ($create.ExitCode -ne 0) {
+        throw "Registering the tray task failed with exit code $($create.ExitCode): $($create.Output -join ' / ')"
+    }
 
-    & "$env:WINDIR\System32\schtasks.exe" /change /tn 'HonorControlTrayHost' /disable | Out-Null
-    if ($LASTEXITCODE -ne 0) { throw "Disabling the tray task failed with exit code $LASTEXITCODE." }
+    $disable = Invoke-Native "$env:WINDIR\System32\schtasks.exe" @('/change', '/tn', 'HonorControlTrayHost', '/disable')
+    if ($disable.ExitCode -ne 0) {
+        throw "Disabling the tray task failed with exit code $($disable.ExitCode): $($disable.Output -join ' / ')"
+    }
 }
 
 function Remove-TrayTaskRegistration {
-    # schtasks returns non-zero when the task does not exist; uninstall must be idempotent.
-    & "$env:WINDIR\System32\schtasks.exe" /delete /tn 'HonorControlTrayHost' /f 2>$null | Out-Null
+    # schtasks returns non-zero (and writes to stderr) when the task does not exist;
+    # uninstall must be idempotent, so the outcome is deliberately ignored here.
+    Invoke-Native "$env:WINDIR\System32\schtasks.exe" @('/delete', '/tn', 'HonorControlTrayHost', '/f') | Out-Null
 }
 
 # Stop the tray and the panel before an upgrade or uninstall: their executables are locked.
