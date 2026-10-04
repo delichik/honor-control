@@ -31,8 +31,9 @@ function telemetry() {
     ChargeStartPercent: state.chargeStart,
     ChargeStopPercent: state.chargeStop,
     PerformanceMode: state.performanceMode,
-    // 未接适配器时不可能是充入状态，这里保持自洽，避免出现"拔电还在充电"的假象。
-    BatteryPowerW: simulated.PluggedIn ? simulated.BatteryPowerW : Math.min(0, simulated.BatteryPowerW ?? 0),
+    // 功率符号由生成器按插拔状态给出（接着=正、拔掉=负）。这里不要再"修正"一次：
+    // 之前把它钳成 min(0, x) 会让未接电源时的示例曲线永远是一条 0 线。
+    BatteryPowerW: simulated.BatteryPowerW,
   }
 }
 
@@ -70,7 +71,7 @@ export async function mockRequest(command, desired = null) {
     case COMMANDS.GetTelemetry:
       return { Version: PROTOCOL_VERSION, Error: null, Telemetry: telemetry() }
 
-    case COMMANDS.GetSnapshot:
+    case COMMANDS.GetState:
       return { Version: PROTOCOL_VERSION, Error: null, Snapshot: snapshot() }
 
     case COMMANDS.GetCapabilities:

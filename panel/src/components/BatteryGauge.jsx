@@ -1,5 +1,6 @@
 import { useCallback, useRef, useState } from 'react'
-import { makeStyles, tokens, useFluent } from '@fluentui/react-components'
+import { makeStyles, tokens } from '@fluentui/react-components'
+import { useThemeTokens } from '../app/theme.js'
 
 const useStyles = makeStyles({
   wrap: { display: 'flex', alignItems: 'center', gap: '16px', flexWrap: 'wrap' },
@@ -36,8 +37,8 @@ export function BatteryGauge({
 }) {
   const styles = useStyles()
   // SVG 的表现属性（fill/stroke）不支持 var()，而 Fluent 的 tokens 全是 var(--…) 字符串，
-  // 直接塞进属性会渲染不出颜色。所以 SVG 里一律用 useFluent() 解析出的字面量颜色。
-  const { theme } = useFluent()
+  // 直接塞进属性会渲染不出颜色。所以 SVG 里一律用主题上下文里的字面量色值。
+  const theme = useThemeTokens()
   const svgRef = useRef(null)
   const [dragging, setDragging] = useState(null)
 

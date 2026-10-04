@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from 'react'
+import { createContext, useContext, useEffect, useMemo, useState } from 'react'
 import { webDarkTheme, webLightTheme } from '@fluentui/react-components'
 import { useAppStore } from './store.js'
 
@@ -62,4 +62,22 @@ export function useAppTheme() {
   }, [isDark])
 
   return { theme, isDark, themeMode, setThemeMode }
+}
+
+/**
+ * 当前主题的**字面量** token 值。
+ *
+ * 为什么需要它：Fluent 的 `tokens.*` 是 `var(--…)` 字符串，而 SVG 的表现属性（fill/stroke）
+ * 与 Recharts 的 stroke/fill 都不支持 var()，直接塞进去渲染不出颜色；这些位置必须拿到真实色值。
+ *
+ * 不要用 `useFluent().theme`——Fluent v9 的 useFluent() 不提供 theme，拿到的是 undefined，
+ * 表现为首屏渲染抛错、整页白屏（这个坑已经踩过一次）。这里由我们自己提供上下文：
+ * lightTheme/darkTheme 是用 webLightTheme 构造的完整主题对象，字段就是字面量色值。
+ *
+ * 本文件是 .js，不能用 JSX，所以在 main.jsx 里包 Provider。
+ */
+export const ThemeTokensContext = createContext(webLightTheme)
+
+export function useThemeTokens() {
+  return useContext(ThemeTokensContext)
 }

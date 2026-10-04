@@ -10,7 +10,8 @@ import {
   XAxis,
   YAxis,
 } from 'recharts'
-import { makeStyles, useFluent } from '@fluentui/react-components'
+import { makeStyles } from '@fluentui/react-components'
+import { useThemeTokens } from '../app/theme.js'
 
 const useStyles = makeStyles({
   wrap: { width: '100%', height: '320px' },
@@ -28,7 +29,7 @@ const useStyles = makeStyles({
  */
 export function HistoryChart({ series, hours, yDomain = ['auto', 'auto'], unit = '' }) {
   const styles = useStyles()
-  const { theme } = useFluent()
+  const theme = useThemeTokens()
 
   const resolveColor = (item) => theme[item.colorToken] ?? item.color ?? theme.colorBrandStroke1
 
@@ -59,7 +60,10 @@ export function HistoryChart({ series, hours, yDomain = ['auto', 'auto'], unit =
   const formatTick = (index) => {
     const length = series[0]?.samples?.length ?? 1
     const backHours = hours * (1 - index / Math.max(1, length - 1))
-    if (backHours < 1 / 60) return '现在'
+    // 首页的"最近一分钟"用的是 hours = 1/60，刻度必须落到秒级，
+    // 否则四个刻度都会判成"现在"，横轴等于没有信息。
+    if (backHours <= 0.0001) return '现在'
+    if (backHours < 1 / 60) return `-${Math.max(1, Math.round(backHours * 3600))} 秒`
     if (backHours < 1) return `-${Math.round(backHours * 60)} 分`
     if (backHours < 48) return `-${backHours.toFixed(backHours < 10 ? 1 : 0)} 小时`
     return `-${(backHours / 24).toFixed(1)} 天`

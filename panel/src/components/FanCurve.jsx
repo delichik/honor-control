@@ -10,7 +10,8 @@ import {
   XAxis,
   YAxis,
 } from 'recharts'
-import { Text, makeStyles, tokens, useFluent } from '@fluentui/react-components'
+import { Text, makeStyles, tokens } from '@fluentui/react-components'
+import { useThemeTokens } from '../app/theme.js'
 import { EXAMPLE_CURVES_BY_MODE, rpmForTemperature } from '../data/fanCurve.js'
 
 const useStyles = makeStyles({
@@ -43,8 +44,8 @@ const useStyles = makeStyles({
 export function FanCurve({ sensors = [], fans = [], performanceMode = 1 }) {
   const styles = useStyles()
   // Recharts 把 stroke/fill 写成 SVG 属性，而 token 是 var(--…) 字符串——属性里不生效，
-  // 所以图表颜色统一用 useFluent() 解析出的字面量（CSS 里的 tokens 不受影响）。
-  const { theme } = useFluent()
+  // 所以图表颜色统一取主题里的字面量色值（CSS 里的 tokens 不受影响）。
+  const theme = useThemeTokens()
   const curve = EXAMPLE_CURVES_BY_MODE[performanceMode] ?? EXAMPLE_CURVES_BY_MODE[1]
   const maxRpm = Math.max(...curve.map((point) => point.r), ...fans.map((fan) => fan.MaxRpm ?? 0), 6000)
 

@@ -3,7 +3,7 @@ import { createRoot } from 'react-dom/client'
 import { FluentProvider } from '@fluentui/react-components'
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
 import App from './App.jsx'
-import { useAppTheme } from './app/theme.js'
+import { ThemeTokensContext, useAppTheme } from './app/theme.js'
 import './styles/global.css'
 
 /**
@@ -26,9 +26,12 @@ function Root() {
   const { theme } = useAppTheme()
   return (
     <FluentProvider theme={theme} style={{ height: '100%' }}>
-      <QueryClientProvider client={queryClient}>
-        <App />
-      </QueryClientProvider>
+      {/* SVG / 图表需要字面量色值（var() 在表现属性里无效），这里把当前主题传下去。 */}
+      <ThemeTokensContext.Provider value={theme}>
+        <QueryClientProvider client={queryClient}>
+          <App />
+        </QueryClientProvider>
+      </ThemeTokensContext.Provider>
     </FluentProvider>
   )
 }

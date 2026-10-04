@@ -1,4 +1,5 @@
-import { makeStyles, tokens, useFluent } from '@fluentui/react-components'
+import { makeStyles, tokens } from '@fluentui/react-components'
+import { useThemeTokens } from '../app/theme.js'
 
 const useStyles = makeStyles({
   wrap: { display: 'flex', alignItems: 'center', gap: '10px' },
@@ -22,8 +23,8 @@ const useStyles = makeStyles({
  */
 export function FanRotor({ rpm = 0, maxRpm = 6000, size = 54 }) {
   const styles = useStyles()
-  // SVG 属性不支持 var()，Fluent token 是 var(--…) 字符串，所以这里解析成字面量颜色
-  const { theme } = useFluent()
+  // SVG 属性不支持 var()，Fluent token 是 var(--…) 字符串，所以这里改用主题里的字面量色值
+  const theme = useThemeTokens()
   const ratio = Math.min(1, Math.max(0, rpm / maxRpm))
   const stopped = rpm < 120
   const secondsPerTurn = Math.max(0.2, 2.6 - Math.pow(ratio, 0.75) * 2.35)

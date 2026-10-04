@@ -52,6 +52,7 @@ npm install
 npm run dev          # 浏览器里跑：没有 Tauri 运行时，自动切到示例数据（假服务）
 npm run tauri dev    # 真正的桌面窗口（需要 Rust 工具链 + MSVC + WebView2）
 npm run build        # 只构建前端产物到 dist/
+npm run smoke        # 冒烟：无头浏览器加载 dist，断言界面真的挂载且控制台无未捕获异常
 npm run tauri build  # 打包 NSIS 安装包
 npm run verify       # 两条代码约定校验，CI 里必须通过（见下）
 ```
@@ -62,6 +63,10 @@ npm run verify       # 两条代码约定校验，CI 里必须通过（见下）
 - `verify:arch` —— 示例数据只允许从 `data/queries.js` 注入（白名单之外引用 `data/mock/*` 直接失败）；
   除 `data/` 外不许直接 import `@tauri-apps/*`；`data/transport.js` 必须**动态**加载假服务，
   否则 mock 代码会被打进桌面产物。
+
+`npm run smoke` 是**运行期**的守卫：`vite build` 只能证明语法和依赖没问题。曾经出现过
+"构建全绿、用户打开却是白屏"——原因是一个运行时错误（`useFluent().theme` 拿到 `undefined`），
+所以 CI 会把构建产物真正跑一遍，断言导航文案出现、`#root` 有内容、控制台没有未捕获异常。
 
 `npm run dev` 是日常开发的主力：**不需要服务、不需要 Windows 也能把六个页面全部看一遍**，
 因为数据链路会自动走 `data/mock`。真机联调时用 `npm run tauri dev`。

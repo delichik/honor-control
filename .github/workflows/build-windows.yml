@@ -185,6 +185,13 @@ jobs:
         working-directory: panel
         run: npm run build
 
+      # 光有构建成功不够：有一次面板在 WebView 里白屏，原因是一个运行时错误
+      # （读了 undefined 的字段），构建全绿、用户打开却是空白。这一步真正把产物跑起来，
+      # 断言界面挂载了、且控制台没有未捕获异常。CI 的 windows 运行器自带 Edge。
+      - name: Smoke test the built panel
+        working-directory: panel
+        run: npm run smoke
+
       - name: Upload panel frontend
         uses: actions/upload-artifact@v4
         with:
