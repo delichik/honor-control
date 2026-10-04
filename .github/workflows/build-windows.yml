@@ -89,16 +89,6 @@ jobs:
           dotnet build tools/HistoryProbe/HistoryProbe.csproj --configuration Release
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
 
-      - name: Parse installer scripts
-        shell: pwsh
-        run: |
-          foreach ($script in @('installer/Install-Prerequisites.ps1', 'installer/Manage-Service.ps1')) {
-            $tokens = $null
-            $errors = $null
-            [System.Management.Automation.Language.Parser]::ParseFile((Resolve-Path $script), [ref]$tokens, [ref]$errors) | Out-Null
-            if ($errors.Count -gt 0) { throw "$script has PowerShell syntax errors: $($errors -join '; ')" }
-          }
-
       # 安装器必须包含控制面板。面板构建已经变成硬门禁（见上一步），这里只是把前置条件写清楚：
       # 缺少面板产物时直接失败，而不是产出一个装了也没法用的安装包。
       - name: Check control panel payload

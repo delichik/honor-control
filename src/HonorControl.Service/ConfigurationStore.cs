@@ -43,6 +43,12 @@ internal sealed class ConfigurationStore
         lock (sync) return ReadDocument().TrayPolicy;
     }
 
+    /// <summary>配置拥有者的 SID；尚未注册时返回 null（托盘只在拥有者的会话里出现）。</summary>
+    public string? LoadOwnerSid()
+    {
+        lock (sync) return ReadDocument().OwnerSid;
+    }
+
     public TrayPolicyMode UpdateTrayPolicy(TrayPolicyMode policy)
     {
         lock (sync)

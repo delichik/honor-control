@@ -117,8 +117,9 @@ honor-control-panel.exe    用户会话、普通权限：本面板
 
 - **拉起托盘**：默认策略 `OnDemand` 的含义是"用户在场才出现托盘"，而"用户在场"最直接的信号就是打开面板——
   所以面板启动后会调用 Tauri 命令 `launch_tray` 把托盘拉起来（托盘有单实例互斥量，重复调用无害）。
-  策略 `Off` 时不拉；`Always` 由服务经登录任务在登录时拉起。命令实现在 `src-tauri/src/main.rs`，
-  解析 `..\tray\HonorControl.Tray.exe`，开发时可用 `HONORCONTROL_TRAY_PATH` 指定路径。
+  策略 `Off` 时不拉；`Always` 由服务在拥有者的会话里直接拉起（复制 explorer 令牌 + `CreateProcessAsUser`）。
+  命令实现在 `src-tauri/src/main.rs`，解析 `..\tray\HonorControl.Tray.exe`，开发时可用
+  `HONORCONTROL_TRAY_PATH` 指定路径。
 - **启动服务**：面板是普通权限，靠安装器授予的 `SERVICE_START` 调 SCM（不会弹 UAC）。
 - **停止服务**：托盘菜单的"退出（停止后台服务）"经管道请求服务自己停止。
 

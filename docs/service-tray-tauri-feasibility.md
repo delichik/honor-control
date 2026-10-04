@@ -130,20 +130,28 @@ installer/                   在线安装器 + 依赖预检 + 服务注册/备�
 
 **会话范围**：托盘进程只在 `OwnerSid` 匹配的会话中运行——多用户机器上非拥有者登录不会出现托盘（非拥有者本来也无法控制设备）。
 
-#### 4.1.1 服务侧拉起的三种机制
+#### 4.1.1 服务侧拉起：实际实现选了 A′
 
 | 机制 | 实现 | 完整性级别 | 评价 |
 |---|---|---|---|
 | A. `CreateProcessAsUser`（朴素） | `WTSQueryUserToken` + `DuplicateTokenEx` + `CreateProcessAsUser(lpDesktop="winsta0\\default")` | ⚠️ 用户**完整令牌**，管理员静默高完整性 | 需要 LocalSystem 的 `SeTcbPrivilege`/`SeAssignPrimaryToken`/`SeIncreaseQuota`（LocalSystem 都有），但破坏"普通权限"原则，**不推荐** |
-| A′. 复制 Explorer 令牌 | 在同会话 `explorer.exe` 上 `OpenProcessToken` → `DuplicateTokenEx` → `CreateProcessAsUser` | ✅ 中完整性 | 可行，但要处理"找不到 Explorer / 多实例 / Explorer 重启"的竞态；适合作为兜底手段 |
-| B. 计划任务按需触发 | 安装器注册 `TASK_LOGON_INTERACTIVE_TOKEN`、**不勾选**最高权限的任务；服务用任务计划 API `IRegisteredTask.Run()` 触发 | ✅ 中完整性（用户筛选令牌） | **推荐**：天然中完整性、由系统定位会话、可配失败重试、卸载可清理；同一个任务带登录触发器还能顺带解决 4.1.2 的时序问题 |
+| **A′. 复制 Explorer 令牌（已采用）** | 在拥有者会话的 `explorer.exe` 上 `OpenProcessToken` → `DuplicateTokenEx` → `CreateProcessAsUser` | ✅ 中完整性（与 shell 相同） | `service/TrayLauncher.cs`。不需要安装期注册任何东西，运行期也不 spawn 外部进程 |
+| B. 计划任务 | 安装器注册 `TASK_LOGON_INTERACTIVE_TOKEN` 任务，服务 `schtasks /run` 触发 | ✅ 中完整性 | 原先推荐，**最终未采用**：见下 |
+
+**为什么最后没有用计划任务（B）**：它需要安装期注册任务（还要解决"登记给哪个用户"的问题），
+运行期服务还得 spawn `schtasks.exe`。而安装流程已经因为杀软敏感而全面去脚本化——
+再留一个"服务派生 schtasks"的外部进程调用，收益不大、可疑度不低。
+改用 A′ 之后：安装器不注册任务，服务不依赖任何外部工具，
+而且复制 shell 令牌天然拿到中完整性（这正是 A 的缺陷所在），两个问题一起解决。
+
+托盘路径解析为 `{app}\tray\HonorControl.Tray.exe`（服务的上一级目录），失败只记日志并按退避重试。
 
 #### 4.1.2 与服务 `DelayedAutoStart` 的时序
 
 服务当前是延迟自动启动（`Manage-Service.ps1:30`，开机后约 2 分钟），**已定保留**。于是：
 
 - 若只靠服务拉起，`Always` 策略下托盘会比登录晚约 2 分钟出现；
-- 采用机制 B 时，任务自带登录触发器即可让托盘准时出现，而**"启用/禁用该触发器"由服务按策略开关**——既准时，又保持服务权威；
+- 采用 A′ 时，服务启动后按 15 秒轮询发现托盘缺失就补拉，因此 `Always` 下托盘在服务起来后约 15 秒内出现（服务本身延迟启动约 2 分钟）；
 - `OnDemand`（默认）不受这个时序影响：托盘本来就要等用户打开面板才出现。
 
 **无论选哪种**，托盘进程都必须容忍：服务尚未启动（连接失败要退避重试，而不是退出）、服务未安装/已卸载（重试若干次后退出，不留空转进程）、升级安装期间被终止（升级后由策略决定是否恢复）。
@@ -260,7 +268,7 @@ installer/                   在线安装器 + 依赖预检 + 服务注册/备�
 
 | 场景 | 现象 | 处理 |
 |---|---|---|
-| 服务延迟启动约 2 分钟 | `Always` 下托盘比登录晚出现 | 计划任务的登录触发器（4.1.2）；`OnDemand` 不受影响 |
+| 服务延迟启动约 2 分钟 | `Always` 下托盘在服务起来后约 15 秒出现 | 服务轮询补拉（4.1.2）；`OnDemand` 不受影响 |
 | 服务未安装/已卸载但托盘进程被拉起 | 连不上、读不到策略 | 退避重试若干次后退出，不留常驻空转进程 |
 | 面板拉起时托盘已在运行 | 可能出现两个进程 | 单实例互斥量：后者发信号后退出 |
 | 服务与面板同时拉起 | 同上 | 同上，不需要跨进程协调 |
@@ -386,8 +394,9 @@ UI 已经把降级做在三个层级上，服务侧必须配合：
 - `src/HonorControl.Tray/`：托盘进程。隐藏的**顶层**窗口（必须顶层，否则收不到 `TaskbarCreated` 广播）+ 消息循环 +
   `Shell_NotifyIcon`（固定 GUID + `NIM_SETVERSION` 4）、右键菜单、气泡通知、单实例互斥量、按策略自退、
   退出时经管道请求服务自停、`%LocalAppData%\HonorControl\tray.log` 诊断日志（可用 `HONORCONTROL_TRAY_LOG` 覆盖路径）。
-- `src/HonorControl.Service/TrayPolicyHost.cs`：按策略启用/触发登录计划任务。服务在会话 0 里无法直接创建会话内进程，
-  用 `schtasks /change /enable|/disable` 与 `/run` 搭桥（机制 B）。
+- `src/HonorControl.Service/TrayPolicyHost.cs`：按策略决定托盘存活（Off/OnDemand/Always），Always 时调用下面的拉起器。
+- `src/HonorControl.Service/TrayLauncher.cs`：复制拥有者会话里 explorer 的令牌后 `CreateProcessAsUser`（机制 A′）。
+  不需要安装期注册任务，运行期也不 spawn 任何外部工具。
 - `src/HonorControl.Service/WindowsServiceSessionNotifications.cs`：会话变更接入（见第 10 节待确认项）。
 - `src/HonorControl.Service/Telemetry/TelemetrySampler.cs`、`Telemetry/HistoryStore.cs`、`Hardware/BatteryService.cs`：已实现（见 5.1.1）。
 - `src/HonorControl.Contracts/Models/*`：从 `src/HonorControl/Models/` 迁入的共享模型。
@@ -398,9 +407,11 @@ UI 已经把降级做在三个层级上，服务侧必须配合：
 - `src/HonorControl.Service/PipeServer.cs`：新增 `SetTrayPolicy`、`ShutdownService`（owner-only）、`EnsureTray`、`GetTelemetry`、`GetCapabilities`、`GetHistory`；按调用方角色区分授权。
 - `src/HonorControl.Service/ConfigurationStore.cs`：新增 `TrayPolicy` 字段与自举默认值（4.10）；归属注册时机若采纳 4.3 选项 1 则基本不变。
 - `src/HonorControl.Service/Hardware/OemWmiClient.cs`：新增适配器电流（`0x10902`/`0x110902`）、候选风扇转速与 PL 读写。
-- `installer/Manage-Service.ps1`：目录白名单、托盘进程终止、计划任务注册/注销、`sc.exe sdset` 授予 Users `SERVICE_START`。
+- `installer/HonorControl.iss`：**安装流程已全面去脚本化**——设备预检是注册表读取，服务注册/配置/授权用系统自带的
+  `sc.exe`（`create`/`config`/`description`/`sdset`/`start`/`stop`/`delete`），备份恢复用 Inno 的文件 API，
+  下载的 .NET 运行时先过 `WinVerifyTrust` 验签才会执行。安装流程里不再有 PowerShell、WMI 查询与 schtasks。
 - `installer/HonorControl.iss`：新增 `panel/`、`tray/` 载荷与新安装布局、依赖检查简化、卸载清理。
-- `installer/Install-Prerequisites.ps1`：删除 WindowsAppRuntime 检查，新增 WebView2 存在性检查。
+- `installer/Install-Prerequisites.ps1`、`installer/Manage-Service.ps1`：**已删除**（被上面的 Pascal 实现取代）。
 - `.github/workflows/build-windows.yml`：新增 Rust/Tauri 构建、重写载荷校验。
 
 **新增（Rust + Tauri，仅面板）— 骨架已完成**
@@ -419,11 +430,11 @@ UI 已经把降级做在三个层级上，服务侧必须配合：
 | 风险 | 影响 | 缓解 |
 |---|---|---|
 | 服务进程直接创建托盘（唯一硬阻断） | 方案不成立 | 必须走独立托盘进程；不要尝试"变通写法" |
-| 服务侧拉起用了朴素 `WTSQueryUserToken` | 静默提权，破坏"普通权限界面"原则 | 用机制 B（计划任务 `Run()`）；必须直接建进程时复制 Explorer 令牌 |
+| 服务侧拉起用了朴素 `WTSQueryUserToken` | 静默提权，破坏"普通权限界面"原则 | 已采用 A′：复制 Explorer 令牌后建进程，天然中完整性 |
 | 两个拉起方与策略不一致 | 托盘该出现时不出现、该消失时残留 | 单一权威（服务持久化策略）+ 托盘自行退出 + 单实例互斥量吸收重复拉起（4.10/4.11） |
 | 配置归属由"登录"触发 | 多用户机器上第二个用户被拒 | 采纳 4.3 选项 1（托盘只读） |
 | Explorer 重启 / 任务栏重建 | 托盘图标消失 | 托盘重写时保留 `TaskbarCreated` + `NIM_SETVERSION 4` + GUID 处理（现成实现可复用）；窗口必须是顶层窗口 |
-| 服务 `DelayedAutoStart` 与托盘的时序 | `Always` 下托盘晚约 2 分钟出现 | 机制 B 的登录触发器；`OnDemand` 不受影响 |
+| 服务 `DelayedAutoStart` 与托盘的时序 | `Always` 下托盘在服务启动后约 15 秒内出现（服务延迟启动约 2 分钟） | 服务按 15 秒轮询补拉；`OnDemand` 不受影响 |
 | 面板需要的指标服务采集不到 | 温度/风扇等卡片只能隐藏，UI 设计意图打折 | 按 5.1 先做真机核实；服务如实报告能力，**不发假值** |
 | PL 与风扇曲线的写路径未验证 | 设置页控件写入失败或无效 | 首版只读或隐藏，实测后再开放（5.5） |
 | 历史数据只在服务运行时才有 | 监控图表出现断档 | 面板显式显示断档；在 UI/文档里写明口径 |
@@ -441,7 +452,7 @@ UI 已经把降级做在三个层级上，服务侧必须配合：
 | 里程碑 | 内容 | 人日 |
 |---|---|---|
 | M0 | 共享模型迁移、契约 v2、服务构建解耦 | 1–2 |
-| M1 | 服务：托盘策略 + 拉起/停止 + `SERVICE_START` 授权 + 计划任务 | 3–5 |
+| M1 | 服务：托盘策略 + 会话内拉起 + 停止 + `SERVICE_START` 授权 | 3–5 |
 | M2 | C# 托盘进程（移植托盘/菜单/通知 + 策略自退 + 退出停服务 + 单实例） | 2–3 |
 | M3 | 服务：采样器 + 能力探测 + 历史存储与降采样查询 | 6–10 |
 | M4 | Tauri 面板（六页 + 图表 + 电池/风扇图形 + 适配层 + 单实例激活 + 主题/Mica） | 12–18 |
@@ -460,7 +471,7 @@ UI 已经把降级做在三个层级上，服务侧必须配合：
 1. 托盘是独立进程，由服务与控制面板按配置决定是否拉起；默认策略 `OnDemand`（见 4.1、4.10）。
 2. 服务随开机默认启动、`DelayedAutoStart` 保留；**退出托盘 = 停止服务**（强依赖，见 4.1）。
 3. 托盘与面板都是中完整性、不申请提权；只有服务高权限。
-4. 服务侧拉起用计划任务（机制 B）；停止由托盘经管道请求服务自停；启动通过给服务 SD 授予 Users `SERVICE_START`。
+4. 服务侧拉起用 A′（复制 Explorer 令牌 + `CreateProcessAsUser`）；停止由托盘经管道请求服务自停；启动通过给服务 SD 授予 Users `SERVICE_START`。
 5. 服务**不做**托盘存活判定与崩溃重生成；服务被停止时由面板负责报告并恢复。
 6. 托盘进程用 C#（与服务同栈），面板用 Rust + Tauri。
 7. **面板视图用 React + Fluent UI v9 重写**：原型 HTML 只作为需求基线，不沿用其代码（见 4.6）。
@@ -497,7 +508,7 @@ UI 已经把降级做在三个层级上，服务侧必须配合：
 - 会话 0 隔离下的托盘可见性（正向验证：独立托盘进程能出图标；反向验证：服务进程不能）。
 - **生命周期闭环**：托盘"退出"→ 服务确实停止；服务被停止 → 面板报告并能 `StartService` 恢复；`OnDemand` 与 `Always` 各自的拉起时机。
 - 托盘进程在真实登录/注销/切换用户/RDP 场景下的拉起与回收。
-- 托盘进程的**完整性级别**是否符合预期（机制 B 应得中完整性，朴素 `WTSQueryUserToken` 会得高完整性）。
+- 托盘进程的**完整性级别**是否符合预期（A′ 复制 Explorer 令牌应得中完整性；朴素 `WTSQueryUserToken` 会得高完整性）。
 - Explorer 重启后的图标恢复（顺带验证用的是顶层窗口而不是 `HWND_MESSAGE`）、通知弹出。
 - 面板启动后与服务的连通性、单实例激活与前置窗口。
 - **5.1 中所有 ⚠️ 指标的真机实测**：`root\wmi` 电池类是否提供温度/功率/健康度/循环次数；`0x10902`/`0x110902` 是否返回可信电流；`0x0802` 的两个字节到底是转速还是封装功率；ACPI 热区能否给出 CPU/GPU 温度。
@@ -506,7 +517,7 @@ UI 已经把降级做在三个层级上，服务侧必须配合：
 - 升级/卸载时三个进程的终止与文件替换、卸载后的自启项清理。
 - **托盘进程**：已验证"能启动、创建隐藏顶层窗口、连不上服务时如实记录并保持重试、单实例、异常落日志"
   （实测：宿主窗口句柄创建成功；`RegisterClassExW` 曾因 `WNDCLASSEXW` 少一个字段报 87，已修）。
-  **未验证**：托盘图标在通知区域的实际外观与交互、`Always` 策略下服务经 `schtasks /run` 拉起托盘能否稳定出现在用户会话、
+  **未验证**：托盘图标在通知区域的实际外观与交互、`Always` 策略下服务复制 explorer 令牌拉起托盘能否稳定出现在用户会话（需要 SYSTEM 身份 + 真实交互式会话）、
   菜单"退出"在真实服务上的完整闭环（本机装的是旧版 v1 服务，协议版本不匹配）。
 - **安装器**：脚本已按新布局改写（`SERVICE_START` 授权、登录任务、三个载荷、进程终止、去掉 Windows App Runtime 预检），
   但**没有跑过一次真实的安装/升级/卸载**——那需要一台可以随意装卸载的机器。
