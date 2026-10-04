@@ -99,11 +99,26 @@ internal sealed class PipeServer : BackgroundService
             timeout.CancelAfter(TimeSpan.FromSeconds(5));
             try
             {
-                string? sid = null;
-                pipe.RunAsClient(() => sid = WindowsIdentity.GetCurrent().User?.Value);
                 using StreamReader reader = new(pipe, Encoding.UTF8, false, 1024, true);
                 using StreamWriter writer = new(pipe, new UTF8Encoding(false), 1024, true) { AutoFlush = true };
+
+                // 先读请求再模拟身份：ImpersonateNamedPipeClient（RunAsClient 底层就是它）要求管道里
+                // 已经有客户端写入的数据，否则会抛 IOException。真机事件日志里留下的就是这条：
+                // "在使用命名管道读取数据之前，无法经由该管道模拟" —— 表现为请求随机失败。
                 string? line = await ReadRequestLineAsync(reader, timeout.Token);
+
+                string? sid = null;
+                string? impersonationError = null;
+                try
+                {
+                    pipe.RunAsClient(() => sid = WindowsIdentity.GetCurrent().User?.Value);
+                }
+                catch (Exception exception)
+                {
+                    impersonationError = exception.Message;
+                    logger.LogWarning(exception, "无法获取命名管道客户端身份");
+                }
+
                 ServiceResponse response;
                 int clientSession = -1;
                 if (GetNamedPipeClientProcessId(pipe.SafePipeHandle, out uint clientProcessId))
@@ -113,7 +128,9 @@ internal sealed class PipeServer : BackgroundService
                 }
                 uint consoleSession = WTSGetActiveConsoleSessionId();
                 int activeConsoleSession = consoleSession == uint.MaxValue ? -1 : (int)consoleSession;
-                if (!configuration.AuthorizeOrEnroll(sid, clientSession, activeConsoleSession))
+                if (impersonationError != null)
+                    response = new(ServiceContract.ProtocolVersion, Error: "无法确认调用方身份：" + impersonationError);
+                else if (!configuration.AuthorizeOrEnroll(sid, clientSession, activeConsoleSession))
                     response = new(ServiceContract.ProtocolVersion, Error: "当前 Windows 用户无权访问 Honor Control 服务。");
                 else if (line == null)
                     response = new(ServiceContract.ProtocolVersion, Error: "服务请求无效。");

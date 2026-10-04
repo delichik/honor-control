@@ -378,13 +378,14 @@ UI 已经把降级做在三个层级上，服务侧必须配合：
 
 ## 7. 改动清单（按文件）
 
-**新增（.NET）**
-- `src/HonorControl.Tray/`：托盘进程（独立 exe）。隐藏顶层窗口 + 消息循环 + 托盘图标/菜单/通知（从 `TrayIconController.cs` 移植）、策略读取与自退、`ShutdownService` 与 `EnsureTray` 调用、单实例互斥量。
-- `src/HonorControl.Service/TrayHostSupervisor.cs`：托盘策略判定、会话跟踪、拉起（计划任务 `Run()`）。
+**新增（.NET）— 已完成**
+- `src/HonorControl.Tray/`：托盘进程。隐藏的**顶层**窗口（必须顶层，否则收不到 `TaskbarCreated` 广播）+ 消息循环 +
+  `Shell_NotifyIcon`（固定 GUID + `NIM_SETVERSION` 4）、右键菜单、气泡通知、单实例互斥量、按策略自退、
+  退出时经管道请求服务自停、`%LocalAppData%\HonorControl\tray.log` 诊断日志（可用 `HONORCONTROL_TRAY_LOG` 覆盖路径）。
+- `src/HonorControl.Service/TrayPolicyHost.cs`：按策略启用/触发登录计划任务。服务在会话 0 里无法直接创建会话内进程，
+  用 `schtasks /change /enable|/disable` 与 `/run` 搭桥（机制 B）。
 - `src/HonorControl.Service/WindowsServiceSessionNotifications.cs`：会话变更接入（见第 10 节待确认项）。
-- `src/HonorControl.Service/ScheduledTaskLauncher.cs`：机制 B 的 `IRegisteredTask.Run()` 触发与登录触发器开关。
-- `src/HonorControl.Service/Telemetry/TelemetrySampler.cs`：1 Hz 快照 + WMI 重指标缓存 + 能力探测。
-- `src/HonorControl.Service/Telemetry/HistoryStore.cs`：60 秒聚合落盘、30 天保留、服务端降采样查询。
+- `src/HonorControl.Service/Telemetry/TelemetrySampler.cs`、`Telemetry/HistoryStore.cs`、`Hardware/BatteryService.cs`：已实现（见 5.1.1）。
 - `src/HonorControl.Contracts/Models/*`：从 `src/HonorControl/Models/` 迁入的共享模型。
 
 **修改（.NET）**
@@ -499,6 +500,12 @@ UI 已经把降级做在三个层级上，服务侧必须配合：
 - 1 Hz 采样器对功耗与 CPU 占用的影响，以及历史落盘的体积与查询延迟。
 - WMI/电脑管家只读互斥、性能模式写入等硬件路径（与本次改造无关，但每次安装都需回归）。
 - 升级/卸载时三个进程的终止与文件替换、卸载后的自启项清理。
+- **托盘进程**：已验证"能启动、创建隐藏顶层窗口、连不上服务时如实记录并保持重试、单实例、异常落日志"
+  （实测：宿主窗口句柄创建成功；`RegisterClassExW` 曾因 `WNDCLASSEXW` 少一个字段报 87，已修）。
+  **未验证**：托盘图标在通知区域的实际外观与交互、`Always` 策略下服务经 `schtasks /run` 拉起托盘能否稳定出现在用户会话、
+  菜单"退出"在真实服务上的完整闭环（本机装的是旧版 v1 服务，协议版本不匹配）。
+- **安装器**：脚本已按新布局改写（`SERVICE_START` 授权、登录任务、三个载荷、进程终止、去掉 Windows App Runtime 预检），
+  但**没有跑过一次真实的安装/升级/卸载**——那需要一台可以随意装卸载的机器。
 - **面板 Rust 外壳尚未编译**（开发机无 Rust/MSVC 工具链）：需要一次 `npm run tauri dev` 确认 Tauri v2 API、
   `windowEffects` 的 Mica 取值与 `tauri`/`tauri-build` 的实际版本。
 - 面板前端已通过 Vite 构建校验（2787 个模块、无解析错误），但**未做真机交互回归**：

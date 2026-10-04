@@ -1,4 +1,4 @@
-#define AppVersion "1.0.0"
+﻿#define AppVersion "1.0.0"
 
 [Setup]
 AppId={{4F1EA80C-EE95-4A22-8B44-8F7EE7294682}
@@ -14,33 +14,34 @@ OutputDir=..\artifacts\installer
 OutputBaseFilename=HonorControl-Setup-x64
 Compression=lzma2
 SolidCompression=yes
-UninstallDisplayIcon={app}\ui\HonorControl.exe
+UninstallDisplayIcon={app}\panel\honor-control-panel.exe
 WizardStyle=modern
 SetupLogging=yes
 
 [Files]
-Source: "..\artifacts\HonorControl-lightweight\*"; DestDir: "{app}\ui"; Flags: ignoreversion recursesubdirs createallsubdirs
+; 三个进程：服务（SYSTEM，负责硬件）、托盘（用户会话，普通权限）、控制面板（用户会话，普通权限）。
+; 托盘与控制面板都不申请提权；需要管理员的地方只有服务注册与计划任务注册（都在本安装器里完成）。
+Source: "..\artifacts\HonorControl-panel\*"; DestDir: "{app}\panel"; Flags: ignoreversion recursesubdirs createallsubdirs
+Source: "..\artifacts\HonorControl-tray\*"; DestDir: "{app}\tray"; Flags: ignoreversion recursesubdirs createallsubdirs
 Source: "..\artifacts\HonorControl-service\*"; DestDir: "{app}\service"; Flags: ignoreversion recursesubdirs createallsubdirs
 Source: "Install-Prerequisites.ps1"; Flags: dontcopy
 Source: "Manage-Service.ps1"; DestDir: "{app}\installer"; Flags: ignoreversion
 Source: "Manage-Service.ps1"; Flags: dontcopy
 
 [Icons]
-Name: "{autoprograms}\Honor Control"; Filename: "{app}\ui\HonorControl.exe"
-Name: "{autodesktop}\Honor Control"; Filename: "{app}\ui\HonorControl.exe"; Tasks: desktopicon
+Name: "{autoprograms}\Honor Control"; Filename: "{app}\panel\honor-control-panel.exe"
+Name: "{autodesktop}\Honor Control"; Filename: "{app}\panel\honor-control-panel.exe"; Tasks: desktopicon
 
 [Tasks]
 Name: "desktopicon"; Description: "创建桌面快捷方式"; GroupDescription: "附加选项："
 
 [Run]
-Filename: "{app}\ui\HonorControl.exe"; Description: "打开 Honor Control"; Flags: nowait postinstall skipifsilent runasoriginaluser; Check: IsServiceReady
+Filename: "{app}\panel\honor-control-panel.exe"; Description: "打开 Honor Control"; Flags: nowait postinstall skipifsilent runasoriginaluser; Check: IsServiceReady
 
 [Code]
 const
   DotNetUrl = 'https://builds.dotnet.microsoft.com/dotnet/Runtime/8.0.31/dotnet-runtime-8.0.31-win-x64.exe';
-  WindowsAppUrl = 'https://aka.ms/windowsappsdk/2.4/2.4.0/windowsappruntimeinstall-x64.exe';
   DotNetFile = 'honorcontrol-dotnet-runtime-8.0.31-x64.exe';
-  WindowsAppFile = 'honorcontrol-windowsappruntime-2.4-x64.exe';
 
 var
   ServiceStoppedForUpgrade: Boolean;
@@ -90,8 +91,8 @@ end;
 function PrepareToInstall(var NeedsRestart: Boolean): String;
 var
   ErrorPath, PrerequisiteScript, ServiceScript, ServicePath, StatePath: String;
-  DotNetPath, WindowsAppPath: String;
-  NeedDotNet, NeedWindowsApp: Boolean;
+  DotNetPath: String;
+  NeedDotNet: Boolean;
   StateLines: TArrayOfString;
 begin
   Result := '';
@@ -103,7 +104,6 @@ begin
   ServicePath := ExpandConstant('{app}\service\HonorControl.Service.exe');
   StatePath := ExpandConstant('{tmp}\HonorControl-PrerequisiteState.txt');
   DotNetPath := ExpandConstant('{tmp}\' + DotNetFile);
-  WindowsAppPath := ExpandConstant('{tmp}\' + WindowsAppFile);
   DeleteFile(StatePath);
   ProgressPage.SetText('正在检查设备和运行依赖', '这一步可能需要一些时间。');
   ProgressPage.Show;
@@ -111,24 +111,24 @@ begin
   try
     if not RunPowerShell(PrerequisiteScript, '-Mode Check -StateFile ' + Quote(StatePath), ErrorPath) then
     begin
-      Result := ReadError(ErrorPath, '设备或微软运行依赖检查失败。');
+      Result := ReadError(ErrorPath, '设备或运行依赖检查失败。');
       Exit;
     end;
   finally
     ProgressPage.Hide;
   end;
-  if not LoadStringsFromFile(StatePath, StateLines) or (GetArrayLength(StateLines) <> 2) then
+  if not LoadStringsFromFile(StatePath, StateLines) or (GetArrayLength(StateLines) <> 1) then
   begin
     Result := '无法读取运行依赖检查结果。';
     Exit;
   end;
   NeedDotNet := StateLines[0] = 'DotNet=1';
-  NeedWindowsApp := StateLines[1] = 'WindowsApp=1';
-  if NeedDotNet or NeedWindowsApp then
+  // 只有服务需要 .NET 运行时：控制面板是 Rust/Tauri（自带运行时 + 系统 WebView2），
+  // 不再需要 Windows App Runtime，安装包因此少一个下载分支。
+  if NeedDotNet then
   begin
     DownloadPage.Clear;
-    if NeedDotNet then DownloadPage.Add(DotNetUrl, DotNetFile, '');
-    if NeedWindowsApp then DownloadPage.Add(WindowsAppUrl, WindowsAppFile, '');
+    DownloadPage.Add(DotNetUrl, DotNetFile, '');
     DownloadPage.Show;
     try
       try
@@ -140,13 +140,12 @@ begin
     finally
       DownloadPage.Hide;
     end;
-    ProgressPage.SetText('正在安装运行依赖', '安装微软运行依赖可能需要几分钟。');
+    ProgressPage.SetText('正在安装运行依赖', '安装 .NET 运行时可能需要几分钟。');
     ProgressPage.Show;
     ProgressPage.Animate;
     try
       if not RunPowerShell(PrerequisiteScript,
         '-Mode Install -DotNetInstaller ' + Quote(DotNetPath) +
-        ' -WindowsAppInstaller ' + Quote(WindowsAppPath) +
         ' -RestartFlag ' + Quote(ExpandConstant('{tmp}\HonorControl-RestartRequired.flag')), ErrorPath) then
       begin
         Result := ReadError(ErrorPath, '微软运行依赖安装失败。');
@@ -154,8 +153,7 @@ begin
       end;
     finally
       ProgressPage.Hide;
-      if NeedDotNet then DeleteFile(DotNetPath);
-      if NeedWindowsApp then DeleteFile(WindowsAppPath);
+      DeleteFile(DotNetPath);
     end;
   end;
   ExistingService := RegKeyExists(HKLM, 'SYSTEM\CurrentControlSet\Services\HonorControlService');
@@ -181,13 +179,21 @@ end;
 
 procedure CurStepChanged(CurStep: TSetupStep);
 var
-  ErrorPath, ScriptPath, ServicePath: String;
+  ErrorPath, ScriptPath, ServicePath, TrayPath, Arguments: String;
 begin
   if CurStep <> ssPostInstall then Exit;
   ErrorPath := ExpandConstant('{tmp}\HonorControl-ServiceError.txt');
   ScriptPath := ExpandConstant('{app}\installer\Manage-Service.ps1');
   ServicePath := ExpandConstant('{app}\service\HonorControl.Service.exe');
-  if not RunPowerShell(ScriptPath, '-Mode Install -ServicePath ' + Quote(ServicePath), ErrorPath) then
+  TrayPath := ExpandConstant('{app}\tray\HonorControl.Tray.exe');
+  // TrayPath：注册托盘的登录任务（默认禁用，运行期由服务按策略启用）。
+  // TaskUser：把任务登记给运行安装器的用户（{username} 是原始用户，不是提权后的管理员），
+  //           他最可能就是配置拥有者——也就是之后第一次打开面板的人。
+  //           如果之后换成另一个用户登录，Always 策略会退化成"由面板拉起"，不会报错。
+  Arguments := '-Mode Install -ServicePath ' + Quote(ServicePath) +
+    ' -TrayPath ' + Quote(TrayPath) +
+    ' -TaskUser ' + Quote(ExpandConstant('{username}'));
+  if not RunPowerShell(ScriptPath, Arguments, ErrorPath) then
     RaiseException(ReadError(ErrorPath, 'Honor Control 服务安装失败。'));
   ServiceReady := True;
   ServiceStoppedForUpgrade := False;

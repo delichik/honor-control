@@ -3,7 +3,9 @@ param(
     [string]$ServicePath,
     [string]$InstallDir,
     [string]$BackupPath,
-    [string]$ErrorFile
+    [string]$ErrorFile,
+    [string]$TrayPath,
+    [string]$TaskUser
 )
 
 $ErrorActionPreference = 'Stop'
@@ -40,6 +42,71 @@ function Assert-ServiceReady {
     finally { $pipe.Dispose() }
 }
 
+# The panel and tray are ordinary-user processes, and starting the service when it is
+# not running can only go through the SCM. This adds one ACE to the service DACL: allow
+# interactive users to start it (RP = SERVICE_START). It deliberately does NOT grant
+# stop permission (WP): the tray menu asks the service to stop itself over the pipe.
+function Grant-ServiceStartToUsers {
+    $current = (& "$env:WINDIR\System32\sc.exe" sdshow $name | Select-Object -First 1)
+    if ($LASTEXITCODE -ne 0 -or [string]::IsNullOrWhiteSpace($current)) {
+        throw 'Unable to read the service security descriptor.'
+    }
+    $current = $current.Trim()
+    if ($current -match '\(A;;RP;;;I[UU]\)') { return }  # Idempotent: do not insert the ACE twice when reinstalling.
+    if (-not $current.StartsWith('D:')) { throw 'Unexpected service security descriptor format.' }
+
+    # Insert at the front of the DACL. Order does not matter for an allow-only rule, but a
+    $updated = 'D:(A;;RP;;;IU)' + $current.Substring(2)
+    Invoke-ServiceControl @('sdset', $name, $updated)
+
+    $verify = (& "$env:WINDIR\System32\sc.exe" sdshow $name | Select-Object -First 1)
+    if ($verify -notmatch '\(A;;RP;;;I[UU]\)') { throw 'Granting SERVICE_START did not take effect.' }
+}
+
+# The tray logon task.
+# The tray must live in the user session while the service runs in session 0; this task
+# bridges the two. Registered at install time, DISABLED by default (the default policy is
+# OnDemand); the service enables and triggers it according to the policy. /it means
+function Set-TrayTaskRegistration([string]$path, [string]$user) {
+    if (-not (Test-Path -LiteralPath $path -PathType Leaf)) { throw 'The tray executable is missing.' }
+
+    # schtasks accepts "user" or "domain\user"; qualify a bare name so that on a domain machine
+    # it cannot silently resolve to a different account that happens to share the name.
+    if (-not [string]::IsNullOrWhiteSpace($user) -and $user -notmatch '\\') {
+        $user = "$env:USERDOMAIN\$user"
+    }
+
+    $action = '"{0}"' -f $path
+    $arguments = @('/create', '/tn', 'HonorControlTrayHost', '/tr', $action, '/sc', 'onlogon', '/f')
+    if (-not [string]::IsNullOrWhiteSpace($user)) { $arguments += @('/ru', $user, '/it') }
+
+    & "$env:WINDIR\System32\schtasks.exe" @arguments | Out-Null
+    if ($LASTEXITCODE -ne 0) { throw "Registering the tray task failed with exit code $LASTEXITCODE." }
+
+    & "$env:WINDIR\System32\schtasks.exe" /change /tn 'HonorControlTrayHost' /disable | Out-Null
+    if ($LASTEXITCODE -ne 0) { throw "Disabling the tray task failed with exit code $LASTEXITCODE." }
+}
+
+function Remove-TrayTaskRegistration {
+    # schtasks returns non-zero when the task does not exist; uninstall must be idempotent.
+    & "$env:WINDIR\System32\schtasks.exe" /delete /tn 'HonorControlTrayHost' /f 2>$null | Out-Null
+}
+
+# Stop the tray and the panel before an upgrade or uninstall: their executables are locked.
+function Stop-TrayAndPanel {
+    foreach ($processName in @('HonorControl.Tray', 'honor-control-panel', 'HonorControl.Panel')) {
+        Get-Process -Name $processName -ErrorAction SilentlyContinue | ForEach-Object {
+            try {
+                $_.Kill()
+                $_.WaitForExit(5000) | Out-Null
+            }
+            catch {
+                # Already exited or access denied: file replacement reports any real problem later.
+            }
+        }
+    }
+}
+
 try {
     $service = Get-Service -Name $name -ErrorAction SilentlyContinue
     if ($Mode -eq 'Stop' -and $service -and $ServicePath) {
@@ -54,9 +121,15 @@ try {
             $service.WaitForStatus('Stopped', [TimeSpan]::FromSeconds(30))
         }
     }
+    # The tray and panel must exit before files are replaced, otherwise their exe stays locked.
+    if ($Mode -in @('Stop', 'Restore')) { Stop-TrayAndPanel }
     if ($Mode -eq 'Install') {
         if (-not (Test-Path -LiteralPath $ServicePath -PathType Leaf)) { throw 'The service executable is missing.' }
         Set-ServiceRegistration $ServicePath ([bool]$service)
+        Grant-ServiceStartToUsers
+        if (-not [string]::IsNullOrWhiteSpace($TrayPath)) {
+            Set-TrayTaskRegistration $TrayPath $TaskUser
+        }
         Start-Service -Name $name -ErrorAction Stop
         (Get-Service -Name $name).WaitForStatus('Running', [TimeSpan]::FromSeconds(30))
         Assert-ServiceReady
@@ -65,8 +138,10 @@ try {
         Start-Service -Name $name -ErrorAction Stop
         (Get-Service -Name $name).WaitForStatus('Running', [TimeSpan]::FromSeconds(30))
     }
-    if ($Mode -eq 'Uninstall' -and $service) {
-        Invoke-ServiceControl -arguments @('delete', $name)
+    if ($Mode -eq 'Uninstall') {
+        Stop-TrayAndPanel
+        Remove-TrayTaskRegistration
+        if ($service) { Invoke-ServiceControl -arguments @('delete', $name) }
     }
     if ($Mode -eq 'Backup') {
         if (-not (Test-Path -LiteralPath $InstallDir -PathType Container)) { throw 'The existing installation is missing.' }
@@ -93,7 +168,7 @@ try {
             Stop-Service -Name $name -ErrorAction Stop
             $service.WaitForStatus('Stopped', [TimeSpan]::FromSeconds(30))
         }
-        foreach ($folder in @('ui', 'service', 'installer')) {
+        foreach ($folder in @('panel', 'tray', 'service', 'installer')) {
             $destination = [IO.Path]::GetFullPath((Join-Path $installRoot $folder))
             if (-not $destination.StartsWith($installRoot + '\', [StringComparison]::OrdinalIgnoreCase)) {
                 throw 'A recovery target is outside the installation directory.'

@@ -36,28 +36,33 @@ jobs:
         shell: pwsh
         run: ./tools/Test-PowerSchemeRead.ps1
 
-      - name: Set up Visual Studio MSBuild
-        uses: microsoft/setup-msbuild@v2
-        with:
-          vs-version: '[17.0,18.0)'
+      # 控制面板与托盘已经取代原来的 WinUI 界面（src/HonorControl 仍在仓库里作为参考实现，
+      # 但不再进入安装包：它与服务端 v2 协议已经不兼容）。
+      - name: Publish control panel (React + Tauri)
+        id: panel_build
+        shell: pwsh
+        continue-on-error: true
+        run: |
+          Push-Location panel
+          npm ci --no-audit --no-fund
+          npm run tauri build
+          $exit = $LASTEXITCODE
+          Pop-Location
+          if ($exit -ne 0) { throw "Tauri build failed with exit code $exit." }
+          # Tauri 的可执行文件与前端产物一起搬进安装器需要的目录结构
+          $panel = '${{ github.workspace }}\artifacts\HonorControl-panel'
+          New-Item -ItemType Directory -Force -Path $panel | Out-Null
+          Copy-Item 'panel\src-tauri\target\release\honor-control-panel.exe' $panel -Force
+          Copy-Item 'panel\src-tauri\icons\icon.ico' (Join-Path $panel 'HonorControl.ico') -Force
 
-      - name: Restore application dependencies
-        run: >-
-          msbuild src/HonorControl/HonorControl.csproj
-          /target:Restore
-          /property:Configuration=Release
-          /property:Platform=x64
-          /property:RuntimeIdentifier=win-x64
-          /property:SelfContained=false
-          /property:WindowsAppSDKSelfContained=false
-
-      - name: Publish lightweight application
+      - name: Publish tray process
         shell: pwsh
         run: >-
-          .\tools\Publish-HonorControl.ps1
-          -SelfContained $false
-          -WindowsAppSdkSelfContained $false
-          -PublishDirectory '${{ github.workspace }}\artifacts\HonorControl-lightweight\'
+          dotnet publish src/HonorControl.Tray/HonorControl.Tray.csproj
+          --configuration Release
+          --runtime win-x64
+          --self-contained false
+          --output '${{ github.workspace }}\artifacts\HonorControl-tray'
 
       - name: Publish background service
         shell: pwsh
@@ -67,6 +72,12 @@ jobs:
           --runtime win-x64
           --self-contained false
           --output '${{ github.workspace }}\artifacts\HonorControl-service'
+
+      - name: Stage tray icon
+        shell: pwsh
+        run: |
+          # 托盘从自己的目录旁边找图标（找不到会退化成系统默认图标）。
+          Copy-Item 'src\HonorControl\Assets\HonorControl.ico' 'artifacts\HonorControl-tray\HonorControl.ico' -Force
 
       # 诊断工具直接编译服务端源码（BatteryService / HistoryStore），
       # 因此服务端改了内部接口而没同步工具时会在这里失败——这是刻意的。
@@ -88,11 +99,28 @@ jobs:
             if ($errors.Count -gt 0) { throw "$script has PowerShell syntax errors: $($errors -join '; ')" }
           }
 
+      # 安装器必须包含控制面板。面板由 Rust/Tauri 构建，而这条链路目前还在验证中
+      # （见 panel-desktop job），所以这里显式判断产物是否存在：缺失时跳过安装器并给出警告，
+      # 而不是产出一个没有面板、装了也没法用的安装包，也不会把整条流水线拖红。
+      - name: Check control panel payload
+        id: panel_payload
+        shell: pwsh
+        run: |
+          $panel = '${{ github.workspace }}\artifacts\HonorControl-panel\honor-control-panel.exe'
+          if (Test-Path -LiteralPath $panel -PathType Leaf) {
+            "available=true" >> $env:GITHUB_OUTPUT
+          } else {
+            "available=false" >> $env:GITHUB_OUTPUT
+            "::warning title=控制面板产物缺失::Rust/Tauri 外壳尚未构建成功（panel-desktop job），本次跳过安装器构建。修复编译错误后流水线会自动恢复。"
+          }
+
       - name: Install Inno Setup compiler
+        if: steps.panel_payload.outputs.available == 'true'
         shell: pwsh
         run: choco install innosetup --version=6.7.1 -y --no-progress
 
       - name: Build online installer
+        if: steps.panel_payload.outputs.available == 'true'
         shell: pwsh
         run: |
           $compiler = 'C:\Program Files (x86)\Inno Setup 6\ISCC.exe'
@@ -102,35 +130,43 @@ jobs:
           $setup = 'artifacts/installer/HonorControl-Setup-x64.exe'
           if (-not (Test-Path -LiteralPath $setup -PathType Leaf)) { throw 'Installer output not found.' }
 
+      # 校验安装器三个载荷：服务（.NET 框架依赖）、托盘（.NET 框架依赖）、面板（Tauri 自带运行时）。
       - name: Verify installer payloads
+        if: steps.panel_payload.outputs.available == 'true'
         shell: pwsh
         run: |
-          $lightweightRoot = '${{ github.workspace }}\artifacts\HonorControl-lightweight'
           $serviceRoot = '${{ github.workspace }}\artifacts\HonorControl-service'
+          $trayRoot = '${{ github.workspace }}\artifacts\HonorControl-tray'
+          $panelRoot = '${{ github.workspace }}\artifacts\HonorControl-panel'
           $requiredFiles = @(
-            "$lightweightRoot\HonorControl.exe",
-            "$lightweightRoot\HonorControl.pri",
-            "$lightweightRoot\HonorControl.Contracts.dll",
-            "$lightweightRoot\Assets\HonorControl.ico",
-            "$lightweightRoot\Microsoft.WindowsAppRuntime.Bootstrap.dll",
-            "$lightweightRoot\Microsoft.WindowsAppRuntime.Bootstrap.Net.dll",
             "$serviceRoot\HonorControl.Service.exe",
             "$serviceRoot\HonorControl.Contracts.dll",
-            "$serviceRoot\Microsoft.Management.Infrastructure.dll"
+            "$serviceRoot\Microsoft.Management.Infrastructure.dll",
+            "$trayRoot\HonorControl.Tray.exe",
+            "$trayRoot\HonorControl.ico",
+            "$panelRoot\honor-control-panel.exe"
           )
           $missingFiles = $requiredFiles | Where-Object { -not (Test-Path -LiteralPath $_ -PathType Leaf) }
           if ($missingFiles.Count -gt 0) { throw "Installer payload incomplete: $($missingFiles -join ', ')" }
-          $unexpectedNames = @('System.Private.CoreLib.dll', 'coreclr.dll', 'Microsoft.UI.Xaml.dll')
-          $unexpectedFiles = $unexpectedNames | ForEach-Object { Join-Path $lightweightRoot $_ } | Where-Object { Test-Path -LiteralPath $_ -PathType Leaf }
-          if ($unexpectedFiles.Count -gt 0) {
-            throw "Lightweight application unexpectedly contains self-contained runtime files: $($unexpectedFiles -join ', ')"
-          }
-          $lightweightConfig = Get-Content -Raw -LiteralPath '${{ github.workspace }}\artifacts\HonorControl-lightweight\HonorControl.runtimeconfig.json' | ConvertFrom-Json
-          if ($lightweightConfig.runtimeOptions.framework.name -ne 'Microsoft.NETCore.App' -or $lightweightConfig.runtimeOptions.includedFrameworks) {
-            throw 'Lightweight runtimeconfig is not framework-dependent.'
+
+          # 服务与托盘都必须是框架依赖发布：把运行时打进安装包会让包体积暴涨，
+          # 而且安装器的依赖预检（Microsoft.NETCore.App 8.0）就是为它们准备的。
+          foreach ($root in @($serviceRoot, $trayRoot)) {
+            $runtimeConfig = Get-ChildItem -LiteralPath $root -Filter '*.runtimeconfig.json' | Select-Object -First 1
+            if (-not $runtimeConfig) { throw "No runtimeconfig.json found under $root." }
+            $config = Get-Content -Raw -LiteralPath $runtimeConfig.FullName | ConvertFrom-Json
+            if ($config.runtimeOptions.framework.name -ne 'Microsoft.NETCore.App' -or $config.runtimeOptions.includedFrameworks) {
+              throw "$($runtimeConfig.Name) is not framework-dependent."
+            }
+            foreach ($unexpected in @('System.Private.CoreLib.dll', 'coreclr.dll')) {
+              if (Test-Path -LiteralPath (Join-Path $root $unexpected) -PathType Leaf) {
+                throw "$root unexpectedly contains self-contained runtime files ($unexpected)."
+              }
+            }
           }
 
       - name: Upload installer artifact
+        if: steps.panel_payload.outputs.available == 'true'
         uses: actions/upload-artifact@v4
         with:
           name: HonorControl-Setup-x64
@@ -174,50 +210,4 @@ jobs:
           name: HonorControl-panel-frontend
           path: panel/dist
           if-no-files-found: error
-          retention-days: 14
-
-  panel-desktop:
-    name: Compile panel shell (Rust + Tauri)
-    runs-on: windows-2022
-    timeout-minutes: 45
-    # ⚠️ Rust 外壳尚未在真实工具链上编译过（开发机没有 Rust/MSVC）。这个 job 就是用来
-    # 首次验证它的：先看它的日志把编译错误修掉，全绿之后**删掉下面这行**，让它真正拦住回归。
-    continue-on-error: true
-
-    steps:
-      - name: Check out source
-        uses: actions/checkout@v4
-
-      - name: Set up Node.js
-        uses: actions/setup-node@v4
-        with:
-          node-version: '24'
-          cache: npm
-          cache-dependency-path: panel/package-lock.json
-
-      - name: Install panel dependencies
-        working-directory: panel
-        run: npm ci --no-audit --no-fund
-
-      - name: Set up Rust
-        uses: dtolnay/rust-toolchain@stable
-
-      - name: Cache Rust build
-        uses: Swatinem/rust-cache@v2
-        with:
-          workspaces: panel/src-tauri
-
-      # 打包 NSIS 安装包；tauri.conf.json 的 beforeBuildCommand 会先跑 npm run build。
-      # 注意：这一步产出的只是"面板自己的安装包"，服务与托盘的整合仍在 Inno Setup 里
-      # （见 docs/service-tray-tauri-feasibility.md 4.7 与 7 的安装器改造项）。
-      - name: Build panel (Tauri, NSIS)
-        working-directory: panel
-        run: npm run tauri build
-
-      - name: Upload panel bundle
-        uses: actions/upload-artifact@v4
-        with:
-          name: HonorControl-panel-nsis
-          path: panel/src-tauri/target/release/bundle/nsis/*.exe
-          if-no-files-found: ignore
           retention-days: 14

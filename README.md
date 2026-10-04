@@ -6,15 +6,12 @@
 
 ```text
 HonorControl.sln
-src/HonorControl/
-  App.xaml                         WinUI 3 应用资源
-  MainWindow.xaml                  Fluent 主窗口与 Mica 系统材质
-  ViewModels/MainViewModel.cs      期望配置编辑与服务状态展示
-  Services/ServiceClient.cs        本机管道客户端
-  Services/TrayIconController.cs   原生 Win32 托盘与窗口生命周期
-  Assets/HonorControl.ico          应用和托盘多尺寸图标
-src/HonorControl.Contracts/         界面与服务的版本化通信契约
-src/HonorControl.Service/           Windows 服务、配置协调、WMI 与电源方案
+panel/                              控制面板（React + Fluent UI + Tauri 2；见 panel/README.md）
+src/HonorControl.Tray/              托盘进程（原生 Win32 托盘；每个用户会话一份，普通权限）
+src/HonorControl.Service/           Windows 服务、配置协调、WMI、遥测采样与历史
+src/HonorControl.Contracts/         三个进程之间唯一的版本化通信契约（协议 v2）
+src/HonorControl/                   旧的 WinUI 3 界面（已被 panel/ 取代，仅作参考保留）
+tools/BatteryProbe、tools/HistoryProbe   只读诊断工具（直接编译服务端源码验证真实读数）
 installer/                          在线安装器与设备/依赖预检
 ```
 
@@ -45,7 +42,7 @@ GitHub Actions 负责发布和打包。安装器要求管理员权限以注册�
 
 仓库包含 `.github/workflows/build-windows.yml`。推送程序源码、控制面板、安装器、解决方案或该工作流的改动后会自动构建；也可在 GitHub 的 **Actions → Build Honor Control → Run workflow** 手动触发。
 
-工作流有三个 job：`build` 发布框架依赖版 WinUI 程序与服务并编译 `HonorControl-Setup-x64.exe`；`panel` 安装面板依赖、跑代码约定校验并构建前端产物；`panel-desktop` 用 Rust 工具链编译 Tauri 外壳并打包 NSIS——Rust 外壳尚未在真实工具链上验证过，因此该 job 暂时允许失败（`continue-on-error`），首次跑绿后应删除这一行。
+工作流有两个 job：`build` 发布控制面板（Rust/Tauri）、托盘与服务，并编译 `HonorControl-Setup-x64.exe`；`panel` 安装面板依赖、跑代码约定校验并构建前端产物。控制面板的 Tauri 构建目前是"允许失败并显示警告"的：它的产物缺失时安装器会被跳过，以免产出装不出来的安装包。
 
 工作流发布框架依赖版 WinUI 程序与服务，编译 `HonorControl-Setup-x64.exe`。安装包不包含 .NET Runtime 或 Windows App Runtime；安装前先检查 Windows 11 x64、荣耀厂商标识和 HWMI 只读回读，再检查 x64 `Microsoft.NETCore.App` 8.0（任一兼容补丁版本）与当前登录用户注册的 Windows App Runtime 2.4。只有缺少依赖时才显示下载进度、从微软官方下载并安装；不要求 .NET Desktop Runtime 或特定的 8.0.31 补丁版本。下载的 .NET 安装器校验官方 SHA-512，两者均校验微软数字签名。网络或校验失败会阻止应用文件安装。
 
@@ -75,6 +72,22 @@ GitHub Actions 负责发布和打包。安装器要求管理员权限以注册�
 服务以 LocalSystem 运行，配置保存在仅 SYSTEM/管理员可写的 `%ProgramData%\HonorControl\service.json`。首次从本机活动控制台连接的 Windows 用户成为配置拥有者；之后仅该用户可通过本机管道读写服务配置。关闭界面或托盘退出不会停止服务。
 
 所有请求固定为 64 字节，通过 Windows CIM/MI 调用 `root\\wmi:OemWMIMethod` 的 `ACPI\PNP0C14\HWMI_0` 实例及 `OemWMIfun` 方法；这与研究阶段成功的 `Get-CimInstance` / `Invoke-CimMethod` 路径一致。项目不复制、加载或分发荣耀 DLL。
+
+## 三个进程与生命周期
+
+```text
+HonorControl.Service.exe   LocalSystem，负责硬件；策略与状态的唯一权威
+HonorControl.Tray.exe      每个用户会话一份，普通权限；托盘图标、菜单、通知
+honor-control-panel.exe    控制面板（Rust + Tauri），按需启动，普通权限
+```
+
+- 服务随开机自动启动（延迟自动启动）。
+- 托盘**不自己启动**：策略 `OnDemand`（默认）时由面板拉起，`Always` 时由服务通过登录计划任务拉起。
+  策略存在服务端，托盘只读。
+- 托盘菜单的"退出"会**同时停止服务**（经管道请求服务自己停止），两个进程是成对的。
+  因此"界面退出而服务继续后台维护"是旧行为，已经不再成立。
+- 面板与托盘都是普通权限：启动服务依赖安装器授予的 `SERVICE_START`（`sc.exe sdset`），
+  停止服务走管道命令，两者都不需要提权。
 
 ## 已知风险与验证边界
 

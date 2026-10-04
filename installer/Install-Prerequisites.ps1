@@ -3,8 +3,7 @@ param(
     [string]$ErrorFile,
     [string]$RestartFlag,
     [string]$StateFile,
-    [string]$DotNetInstaller,
-    [string]$WindowsAppInstaller
+    [string]$DotNetInstaller
 )
 
 $ErrorActionPreference = 'Stop'
@@ -54,14 +53,6 @@ function Test-DotNetRuntime {
     return $false
 }
 
-function Test-WindowsAppRuntime {
-    $activeUser = (Get-CimInstance -ClassName Win32_ComputerSystem -ErrorAction Stop).UserName
-    if ([string]::IsNullOrWhiteSpace($activeUser)) { throw 'No active console user was found for Windows App Runtime verification.' }
-    $sid = ([Security.Principal.NTAccount]::new($activeUser)).Translate([Security.Principal.SecurityIdentifier]).Value
-    $packages = Get-AppxPackage -User $sid -Name 'Microsoft.WindowsAppRuntime.2' -ErrorAction Stop
-    return @($packages | Where-Object { $_.Architecture -eq 'X64' -and $_.Version -ge [Version]'2.4.0.0' }).Count -gt 0
-}
-
 function Assert-VerifiedInstaller([string]$path, [string]$name, [string]$sha512) {
     if (-not (Test-Path -LiteralPath $path -PathType Leaf)) { throw "Downloaded $name is missing." }
     if ($sha512 -and (Get-FileHash -LiteralPath $path -Algorithm SHA512).Hash -ne $sha512) {
@@ -83,11 +74,12 @@ function Install-Dependency([string]$path, [string[]]$arguments) {
 
 try {
     Test-SupportedDevice
+    # Only the service needs a runtime now: the control panel is Rust/Tauri (its own runtime plus the
+    # system WebView2 on Windows 11), so the Windows App Runtime check and its download are gone.
     $needsDotNet = -not (Test-DotNetRuntime)
-    $needsWindowsApp = -not (Test-WindowsAppRuntime)
     if ($Mode -eq 'Check') {
         if ($StateFile) {
-            $state = "DotNet=$([int]$needsDotNet)`r`nWindowsApp=$([int]$needsWindowsApp)`r`n"
+            $state = "DotNet=$([int]$needsDotNet)`r`n"
             [IO.File]::WriteAllText($StateFile, $state, [Text.UTF8Encoding]::new($false))
         }
     }
@@ -96,11 +88,6 @@ try {
             Assert-VerifiedInstaller $DotNetInstaller '.NET 8 Runtime' $dotNetSha512
             Install-Dependency $DotNetInstaller @('/install', '/quiet', '/norestart')
             if (-not (Test-DotNetRuntime)) { throw '.NET 8 Runtime is still unavailable after installation.' }
-        }
-        if ($needsWindowsApp) {
-            Assert-VerifiedInstaller $WindowsAppInstaller 'Windows App Runtime 2.4' ''
-            Install-Dependency $WindowsAppInstaller @('--quiet')
-            if (-not (Test-WindowsAppRuntime)) { throw 'Windows App Runtime 2.4 is still unavailable after installation.' }
         }
     }
     exit 0
