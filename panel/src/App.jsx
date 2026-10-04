@@ -19,6 +19,7 @@ import {
 } from '@fluentui/react-icons'
 import { PAGES, useAppStore } from './app/store.js'
 import { useAppTheme } from './app/theme.js'
+import { useEnsureTray } from './app/useEnsureTray.js'
 import { HomePage } from './pages/HomePage.jsx'
 import { BatterySettingsPage } from './pages/BatterySettingsPage.jsx'
 import { PerformanceSettingsPage } from './pages/PerformanceSettingsPage.jsx'
@@ -105,6 +106,9 @@ export default function App() {
   const page = useAppStore((state) => state.page)
   const setPage = useAppStore((state) => state.setPage)
   const { isDark, themeMode, setThemeMode } = useAppTheme()
+
+  // OnDemand 策略的落地：用户打开面板就算「到场」，由面板把托盘拉起来（幂等，重复调用无害）。
+  useEnsureTray()
 
   const CurrentPage = PAGE_COMPONENTS[page] ?? HomePage
   const currentTitle = PAGES.find((item) => item.id === page)?.label ?? '首页'

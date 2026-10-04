@@ -38,10 +38,10 @@ jobs:
 
       # 控制面板与托盘已经取代原来的 WinUI 界面（src/HonorControl 仍在仓库里作为参考实现，
       # 但不再进入安装包：它与服务端 v2 协议已经不兼容）。
+      # 这一步曾经是 continue-on-error（Rust 外壳首次编译前）；现在它编译稳定，改为硬门禁。
       - name: Publish control panel (React + Tauri)
         id: panel_build
         shell: pwsh
-        continue-on-error: true
         run: |
           Push-Location panel
           npm ci --no-audit --no-fund
@@ -49,7 +49,7 @@ jobs:
           $exit = $LASTEXITCODE
           Pop-Location
           if ($exit -ne 0) { throw "Tauri build failed with exit code $exit." }
-          # Tauri 的可执行文件与前端产物一起搬进安装器需要的目录结构
+          # Tauri 的可执行文件与图标一起搬进安装器需要的目录结构
           $panel = '${{ github.workspace }}\artifacts\HonorControl-panel'
           New-Item -ItemType Directory -Force -Path $panel | Out-Null
           Copy-Item 'panel\src-tauri\target\release\honor-control-panel.exe' $panel -Force
@@ -99,28 +99,21 @@ jobs:
             if ($errors.Count -gt 0) { throw "$script has PowerShell syntax errors: $($errors -join '; ')" }
           }
 
-      # 安装器必须包含控制面板。面板由 Rust/Tauri 构建，而这条链路目前还在验证中
-      # （见 panel-desktop job），所以这里显式判断产物是否存在：缺失时跳过安装器并给出警告，
-      # 而不是产出一个没有面板、装了也没法用的安装包，也不会把整条流水线拖红。
+      # 安装器必须包含控制面板。面板构建已经变成硬门禁（见上一步），这里只是把前置条件写清楚：
+      # 缺少面板产物时直接失败，而不是产出一个装了也没法用的安装包。
       - name: Check control panel payload
-        id: panel_payload
         shell: pwsh
         run: |
           $panel = '${{ github.workspace }}\artifacts\HonorControl-panel\honor-control-panel.exe'
-          if (Test-Path -LiteralPath $panel -PathType Leaf) {
-            "available=true" >> $env:GITHUB_OUTPUT
-          } else {
-            "available=false" >> $env:GITHUB_OUTPUT
-            "::warning title=控制面板产物缺失::Rust/Tauri 外壳尚未构建成功（panel-desktop job），本次跳过安装器构建。修复编译错误后流水线会自动恢复。"
+          if (-not (Test-Path -LiteralPath $panel -PathType Leaf)) {
+            throw "Control panel payload is missing ($panel); the installer cannot be produced."
           }
 
       - name: Install Inno Setup compiler
-        if: steps.panel_payload.outputs.available == 'true'
         shell: pwsh
         run: choco install innosetup --version=6.7.1 -y --no-progress
 
       - name: Build online installer
-        if: steps.panel_payload.outputs.available == 'true'
         shell: pwsh
         run: |
           $compiler = 'C:\Program Files (x86)\Inno Setup 6\ISCC.exe'
@@ -132,7 +125,6 @@ jobs:
 
       # 校验安装器三个载荷：服务（.NET 框架依赖）、托盘（.NET 框架依赖）、面板（Tauri 自带运行时）。
       - name: Verify installer payloads
-        if: steps.panel_payload.outputs.available == 'true'
         shell: pwsh
         run: |
           $serviceRoot = '${{ github.workspace }}\artifacts\HonorControl-service'
@@ -166,7 +158,6 @@ jobs:
           }
 
       - name: Upload installer artifact
-        if: steps.panel_payload.outputs.available == 'true'
         uses: actions/upload-artifact@v4
         with:
           name: HonorControl-Setup-x64

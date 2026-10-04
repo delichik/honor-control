@@ -188,6 +188,10 @@ installer/                   在线安装器 + 依赖预检 + 服务注册/备�
 - 代理启动面板：`CreateProcess` 面板 exe（同目录解析路径），并在启动后把焦点交给已存在实例；面板被第二次拉起时发信号让第一个实例前置窗口，然后自己退出。
 - 面板需要区分"从托盘启动时显示窗口"，与现有 `ShowFromExternalRequest()` 等价。
 
+**反向的那一半（已实现）**：`OnDemand` 策略要求"用户在场才出现托盘"，而用户在场最直接的信号就是打开面板，
+所以面板启动后调用 Tauri 命令 `launch_tray` 拉起托盘（`panel/src-tauri/src/main.rs`，解析 `..\tray\HonorControl.Tray.exe`，
+可用 `HONORCONTROL_TRAY_PATH` 覆盖）。托盘有单实例互斥量，因此"服务、面板同时拉起"仍然不需要任何跨进程协调。
+
 ### 4.6 面板实现（已落地：React + Fluent UI + Tauri）
 
 原型 HTML **只作为需求基线**（页面划分、每个页面要展示什么数据），代码不沿用——它是单文件手写 CSS/SVG 的演示，不是可维护的工程结构。面板已按正式工程重写在 `panel/`：
@@ -506,10 +510,13 @@ UI 已经把降级做在三个层级上，服务侧必须配合：
   菜单"退出"在真实服务上的完整闭环（本机装的是旧版 v1 服务，协议版本不匹配）。
 - **安装器**：脚本已按新布局改写（`SERVICE_START` 授权、登录任务、三个载荷、进程终止、去掉 Windows App Runtime 预检），
   但**没有跑过一次真实的安装/升级/卸载**——那需要一台可以随意装卸载的机器。
-- **面板 Rust 外壳尚未编译**（开发机无 Rust/MSVC 工具链）：需要一次 `npm run tauri dev` 确认 Tauri v2 API、
-  `windowEffects` 的 Mica 取值与 `tauri`/`tauri-build` 的实际版本。
-- 面板前端已通过 Vite 构建校验（2787 个模块、无解析错误），但**未做真机交互回归**：
-  与服务联调、管道错误路径、SCM 启动服务（依赖安装器的 `SERVICE_START` 授权改造）都还没跑过。
+- **面板 Rust 外壳已编译通过**（CI `build` job 的 "Publish control panel (React + Tauri)" 步骤全绿，
+  并且安装器已成功产出并通过载荷校验）。该步骤已从"允许失败"改为硬门禁。
+  **仍未验证**：Mica 材质在真机上的实际效果、面板窗口的交互回归。
+- **面板前端**已通过 Vite 构建校验与两条代码约定守卫（Fluent token/图标名、示例数据边界）。
+- **面板 ↔ 托盘**：`launch_tray` 命令已实现（解析 `..\tray\HonorControl.Tray.exe`，支持 `HONORCONTROL_TRAY_PATH` 覆盖），
+  但"面板拉起托盘 → 托盘注册图标 → 点击回到面板"这条闭环还没有在真机上跑过。
+- 与服务联调、管道错误路径、SCM 启动服务（依赖安装器的 `SERVICE_START` 授权）都还没跑过。
 
 **未能在线核实的外部事实（本会话无网络）**
 

@@ -58,3 +58,21 @@ export async function startService() {
 export async function shutdownService() {
   return serviceRequest('ShutdownService')
 }
+
+/**
+ * 拉起托盘进程。
+ *
+ * 策略 `OnDemand`（默认）的含义是"用户在场时才出现托盘"，而用户在场最直接的信号就是打开了面板，
+ * 所以由面板来拉起它。托盘有单实例互斥量，重复调用无害。
+ *
+ * 浏览器开发模式下没有托盘可拉，直接返回 false（不是错误）。
+ */
+export async function launchTray() {
+  if (!isTauriRuntime()) return false
+  try {
+    return await invoke('launch_tray')
+  } catch (error) {
+    const message = typeof error === 'string' ? error : (error?.message ?? '启动托盘进程失败。')
+    throw new Error(message)
+  }
+}

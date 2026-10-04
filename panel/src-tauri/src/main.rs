@@ -101,12 +101,66 @@ fn start_service() -> Result<(), String> {
     scm::start_service("HonorControlService")
 }
 
+/// 拉起托盘进程。
+///
+/// 为什么由面板来做：策略 `OnDemand`（默认）的含义就是"用户在场时才出现托盘"，
+/// 而"用户在场"最直接的信号就是打开了面板。`Always` 由服务经登录任务拉起（见 TrayPolicyHost），
+/// 面板这边同样可以调用——托盘本身有单实例互斥量，重复拉起是无害的。
+///
+/// 返回 true 表示确实启动了一个新进程（开发时用来核对路径解析）。
+#[tauri::command(async)]
+fn launch_tray() -> Result<bool, String> {
+    let executable = resolve_tray_executable()?;
+    std::process::Command::new(&executable)
+        .spawn()
+        .map_err(|error| format!("启动托盘进程失败（{}）：{error}", executable.display()))?;
+    Ok(true)
+}
+
+/// 托盘可执行文件的位置。
+///
+/// 安装布局：`{app}\panel\honor-control-panel.exe` 与 `{app}\tray\HonorControl.Tray.exe`，
+/// 所以从面板自己的目录往上一级再进 tray 就能找到。开发时可以用
+/// `HONORCONTROL_TRAY_PATH` 直接指定（Rust 侧构建出来的托盘不在这个相对位置上）。
+fn resolve_tray_executable() -> Result<std::path::PathBuf, String> {
+    if let Ok(overridden) = std::env::var("HONORCONTROL_TRAY_PATH") {
+        let path = std::path::PathBuf::from(overridden);
+        if path.is_file() {
+            return Ok(path);
+        }
+        return Err(format!("HONORCONTROL_TRAY_PATH 指向的文件不存在：{}", path.display()));
+    }
+
+    let base = std::env::current_exe()
+        .map_err(|error| format!("无法定位面板自身路径：{error}"))?
+        .parent()
+        .ok_or_else(|| "无法定位面板所在目录。".to_string())?
+        .to_path_buf();
+
+    let candidates = [
+        base.join("..").join("tray").join("HonorControl.Tray.exe"),
+        base.join("HonorControl.Tray.exe"),
+    ];
+
+    for candidate in candidates {
+        if candidate.is_file() {
+            return Ok(candidate);
+        }
+    }
+
+    Err(format!(
+        "找不到托盘程序（已查找 {} 与同级目录）。请重新安装 Honor Control。",
+        base.join("..").join("tray").join("HonorControl.Tray.exe").display()
+    ))
+}
+
 fn main() {
     tauri::Builder::default()
         .invoke_handler(tauri::generate_handler![
             service_request,
             pipe_name,
-            start_service
+            start_service,
+            launch_tray
         ])
         .run(tauri::generate_context!())
         .expect("Honor Control 控制面板启动失败：无法创建主窗口。")
