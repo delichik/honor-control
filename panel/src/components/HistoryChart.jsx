@@ -1,123 +1,164 @@
-import { useMemo } from 'react'
-import {
-  Area,
-  AreaChart,
-  CartesianGrid,
-  Legend,
-  ReferenceLine,
-  ResponsiveContainer,
-  Tooltip as ChartTooltip,
-  XAxis,
-  YAxis,
-} from 'recharts'
-import { makeStyles } from '@fluentui/react-components'
-import { useThemeTokens } from '../app/theme.js'
-
-const useStyles = makeStyles({
-  wrap: { width: '100%', height: '320px' },
-})
+import { useId } from 'react'
+import { useElementWidth } from '../app/useElementWidth.js'
 
 /**
- * 历史曲线。
+ * 历史曲线 —— 设计稿里 `drawSeriesChart()` 的等价实现（充放电历史 / 功耗历史两页共用）。
+ *
+ * 与首页那张 60 秒小图的区别（两处都是照原稿来的，不要合并）：
+ * - 内边距不同：这里是 padL 48 / padR 14 / padT 14 / padB 26，首页是 44/12/12/22；
+ * - 横轴只标两端（"−24 小时" 与 "现在"），首页标的是 −60 s / 现在；
+ * - 纵轴刻度由数据范围算成整数（原稿是每张图写死的刻度数组，效果一致）；
+ * - 没有末端圆点。
  *
  * 数据是**等间隔的数值数组**（服务端降采样后返回，见可行性文档 5.4），不带时间戳，
- * 因此横轴用下标换算成"相对现在的时间"，纵轴单位由调用方给出。
- * 多个序列共用同一条横轴（长度必须一致），用于把适配器功率与系统负载叠在一张图上。
+ * 因此横轴用下标换算成"相对现在的时间"。
  *
- * 颜色用 `colorToken`（Fluent token 名）传入，在这里解析成字面量：
- * Recharts 把颜色写成 SVG 表现属性，而 token 是 var(--…) 字符串，属性里不生效。
+ * 颜色用 CSS 变量字符串（`var(--accent)` 等）传入，换主题时不需要重画。
  */
-export function HistoryChart({ series, hours, yDomain = ['auto', 'auto'], unit = '' }) {
-  const styles = useStyles()
-  const theme = useThemeTokens()
+const PAD = { left: 48, right: 14, top: 14, bottom: 26 }
 
-  const resolveColor = (item) => theme[item.colorToken] ?? item.color ?? theme.colorBrandStroke1
+/** 从范围里挑一个"整"的刻度间隔（1 / 2 / 2.5 / 5 × 10ⁿ），保证刻度是整数。 */
+function niceStep(range) {
+  const raw = range / 4
+  if (!(raw > 0)) return 1
+  const magnitude = Math.pow(10, Math.floor(Math.log10(raw)))
+  const candidates = [1, 2, 2.5, 5, 10].map((factor) => factor * magnitude)
+  return candidates.find((candidate) => candidate >= raw - 1e-9) ?? 10 * magnitude
+}
 
-  const data = useMemo(() => {
-    const length = series[0]?.samples?.length ?? 0
-    const points = []
-    for (let index = 0; index < length; index += 1) {
-      const point = { index }
-      for (const item of series) point[item.key] = item.samples[index]
-      points.push(point)
-    }
-    return points
-  }, [series])
+/** 按间隔铺刻度，落在 [min, max] 内的整数倍；0 永远是 0（不要 -0）。 */
+function buildTicks(min, max) {
+  const step = niceStep(max - min)
+  const ticks = []
+  for (let value = Math.ceil(min / step) * step; value <= max + 1e-9; value += step) {
+    ticks.push(Math.abs(value) < 1e-9 ? 0 : Number(value.toFixed(6)))
+  }
+  return ticks.length >= 2 ? ticks : [min, max]
+}
 
-  // 横轴刻度：按范围给 5 个相对时间点
-  const ticks = useMemo(() => {
-    const length = series[0]?.samples?.length ?? 0
-    if (!length) return []
-    const step = Math.max(1, Math.floor((length - 1) / 4))
-    const result = []
-    for (let index = 0; index < length; index += step) {
-      result.push(index)
-    }
-    if (result[result.length - 1] !== length - 1) result.push(length - 1)
-    return result
-  }, [series, hours])
+export function HistoryChart({ series = [], hours = 24, yDomain, height = 300, maxPoints = 400 }) {
+  const [wrapRef, width] = useElementWidth()
+  const gradientPrefix = useId()
 
-  const formatTick = (index) => {
-    const length = series[0]?.samples?.length ?? 1
-    const backHours = hours * (1 - index / Math.max(1, length - 1))
-    // 首页的"最近一分钟"用的是 hours = 1/60，刻度必须落到秒级，
-    // 否则四个刻度都会判成"现在"，横轴等于没有信息。
-    if (backHours <= 0.0001) return '现在'
-    if (backHours < 1 / 60) return `-${Math.max(1, Math.round(backHours * 3600))} 秒`
-    if (backHours < 1) return `-${Math.round(backHours * 60)} 分`
-    if (backHours < 48) return `-${backHours.toFixed(backHours < 10 ? 1 : 0)} 小时`
-    return `-${(backHours / 24).toFixed(1)} 天`
+  const w = Math.round(width) || 600
+  const h = height
+  const iw = Math.max(1, w - PAD.left - PAD.right)
+  const ih = Math.max(1, h - PAD.top - PAD.bottom)
+
+  const windowed = series.map((item) => ({ ...item, points: (item.samples ?? []).slice(-maxPoints) }))
+  const length = windowed.reduce((max, item) => Math.max(max, item.points.length), 0)
+  const flat = windowed.flatMap((item) => item.points).filter((value) => Number.isFinite(value))
+
+  const dataMin = flat.length ? Math.min(...flat) : 0
+  const dataMax = flat.length ? Math.max(...flat) : 1
+  const explicitMin = yDomain?.[0] !== undefined && yDomain[0] !== 'auto' ? yDomain[0] : null
+  const explicitMax = yDomain?.[1] !== undefined && yDomain[1] !== 'auto' ? yDomain[1] : null
+
+  const yMin = explicitMin ?? Math.min(0, dataMin)
+  // 自动上限向上取整到刻度间隔，避免出现 114/85/57/28 这种刻度
+  let yMax = explicitMax
+  if (yMax === null) {
+    const step = niceStep(Math.max(dataMax - yMin, 1))
+    yMax = Math.max(step, Math.ceil(dataMax / step) * step)
+  }
+  const span = yMax - yMin || 1
+
+  const yFor = (value) => PAD.top + ih - ((value - yMin) / span) * ih
+  const xFor = (index) => PAD.left + (length <= 1 ? 0 : (index / (length - 1)) * iw)
+  const ticks = buildTicks(yMin, yMax)
+  const hasZero = yMin < 0 && yMax > 0
+
+  const formatTick = (value) => (value > 0 ? `+${value}` : String(value))
+
+  const formatStart = () => {
+    if (hours <= 1 / 60) return `−${Math.max(1, Math.round(hours * 3600))} 秒`
+    if (hours < 1) return `−${Math.round(hours * 60)} 分`
+    if (hours < 48) return `−${hours.toFixed(hours < 10 ? 1 : 0)} 小时`
+    return `−${(hours / 24).toFixed(1)} 天`
   }
 
   return (
-    <div className={styles.wrap}>
-      <ResponsiveContainer width="100%" height="100%">
-        <AreaChart data={data} margin={{ top: 8, right: 12, bottom: 0, left: -14 }}>
-          <defs>
-            {series.map((item) => (
-              <linearGradient key={item.key} id={`fill-${item.key}`} x1="0" y1="0" x2="0" y2="1">
-                <stop offset="5%" stopColor={resolveColor(item)} stopOpacity={0.45} />
-                <stop offset="95%" stopColor={resolveColor(item)} stopOpacity={0.04} />
+    <div className={height > 200 ? 'hc-chart-wrap hc-chart-wrap--lg' : 'hc-chart-wrap'} style={{ height }} ref={wrapRef}>
+      <svg className="hc-chart-svg" viewBox={`0 0 ${w} ${h}`} role="img" aria-label="历史曲线">
+        <defs>
+          {windowed.map((item, index) =>
+            item.fill ? (
+              <linearGradient
+                key={item.key}
+                id={`${gradientPrefix}-${index}`}
+                x1="0"
+                y1={PAD.top}
+                x2="0"
+                y2={PAD.top + ih}
+                gradientUnits="userSpaceOnUse"
+              >
+                <stop offset="0%" stopColor={item.color} stopOpacity="0.33" />
+                <stop offset="100%" stopColor={item.color} stopOpacity="0" />
               </linearGradient>
-            ))}
-          </defs>
-          <CartesianGrid stroke={theme.colorNeutralStroke3} strokeDasharray="3 4" />
-          <XAxis
-            dataKey="index"
-            ticks={ticks}
-            tickFormatter={formatTick}
-            tick={{ fontSize: 11, fill: theme.colorNeutralForeground3 }}
-            interval={0}
+            ) : null,
+          )}
+        </defs>
+
+        {ticks.map((value) => (
+          <line
+            key={value}
+            className={value === 0 && hasZero ? 'hc-chart-grid-zero' : 'hc-chart-grid'}
+            x1={PAD.left}
+            y1={yFor(value) + 0.5}
+            x2={w - PAD.right}
+            y2={yFor(value) + 0.5}
           />
-          <YAxis
-            domain={yDomain}
-            tick={{ fontSize: 11, fill: theme.colorNeutralForeground3 }}
-            width={52}
-            unit={unit}
-          />
-          <ChartTooltip
-            contentStyle={{ fontSize: 12 }}
-            labelFormatter={(index) => formatTick(index)}
-            formatter={(value, name) => [`${Number(value).toFixed(1)} ${unit}`, name]}
-          />
-          <Legend wrapperStyle={{ fontSize: 12 }} />
-          {/* 0 线：充放电历史以它为界，一眼看出是充还是放 */}
-          <ReferenceLine y={0} stroke={theme.colorNeutralStroke1} strokeDasharray="4 4" />
-          {series.map((item) => (
-            <Area
-              key={item.key}
-              type="monotone"
-              dataKey={item.key}
-              name={item.label}
-              stroke={resolveColor(item)}
-              strokeWidth={2}
-              strokeDasharray={item.dash}
-              fill={item.fill ? `url(#fill-${item.key})` : 'transparent'}
-              isAnimationActive={false}
-            />
-          ))}
-        </AreaChart>
-      </ResponsiveContainer>
+        ))}
+
+        {ticks.map((value) => (
+          <text
+            key={`t${value}`}
+            className="hc-chart-text"
+            x={PAD.left - 8}
+            y={yFor(value)}
+            textAnchor="end"
+            dominantBaseline="middle"
+          >
+            {formatTick(value)}
+          </text>
+        ))}
+
+        <text className="hc-chart-text" x={PAD.left} y={h - 8} textAnchor="start">
+          {formatStart()}
+        </text>
+        <text className="hc-chart-text" x={w - PAD.right} y={h - 8} textAnchor="end">
+          现在
+        </text>
+
+        {length < 2 ? (
+          <text className="hc-chart-text" x={PAD.left} y={PAD.top + ih / 2} textAnchor="start">
+            正在采集…
+          </text>
+        ) : null}
+
+        {windowed.map((item, index) => {
+          if (item.points.length < 2) return null
+          const line = item.points
+            .map((value, pointIndex) => `${pointIndex === 0 ? 'M' : 'L'}${xFor(pointIndex).toFixed(1)} ${yFor(value).toFixed(1)}`)
+            .join(' ')
+          // 填充基线：跨零的图以零线为界，否则贴到绘图区底部（原稿的 cfg.zero 分支）
+          const baseline = yFor(hasZero ? 0 : yMin)
+          const area = `${line} L${xFor(item.points.length - 1).toFixed(1)} ${baseline.toFixed(1)} L${xFor(0).toFixed(1)} ${baseline.toFixed(1)} Z`
+
+          return (
+            <g key={item.key}>
+              {item.fill ? <path d={area} fill={`url(#${gradientPrefix}-${index})`} /> : null}
+              {/* 颜色与虚线用行内 style：SVG 的表现属性优先级低于样式表，
+                  写成属性会被 .hc-chart-line 里的 stroke 覆盖掉。 */}
+              <path
+                className={item.dash ? 'hc-chart-line hc-chart-line--dashed' : 'hc-chart-line'}
+                d={line}
+                style={{ stroke: item.color, strokeDasharray: item.dash }}
+              />
+            </g>
+          )
+        })}
+      </svg>
     </div>
   )
 }

@@ -1,0 +1,30 @@
+/* 监控与设置页面的补充样式（充放电历史 / 功耗历史 / 设置）。
+   通用控件样式在 design.css 里；这里只放这三个页面特有的排版。 */
+
+/* 关于曲线颜色：HistoryChart 的 `color` 是 CSS 变量字符串（`var(--accent)` /
+   `var(--colorPaletteMarigoldBorderActive)`）。这些值写在 SVG 的表现属性上，
+   实测（Chrome/WebView2，2026-10）**能正常解析**——只要变量在那个元素上真的有值；
+   真正会让整条声明失效的是"变量本身没值"（例如把 Fluent 的调色板变量在 :root 上
+   转发成自定义别名：自定义属性在声明它的元素上求值，:root 上看不到 Provider 里那一层，
+   别名会变成空值 → IACVT → 线直接不画）。
+   所以两条序列的颜色只在 PowerHistoryPage.jsx 里定义一次，这里不再重复上色。 */
+
+/* ---------------------------------------------------------------------------
+   设置页：设计稿没有的补充样式（长段落压成一行说明、只读值里的等宽字）
+   --------------------------------------------------------------------------- */
+
+/* 设计稿的 `*{box-sizing:border-box}` 已经提到 design.css 全局，设置行的 52px 行高
+   与开关的 40×20 都按设计稿生效，这里不再逐处补偿。 */
+
+.hc-setting-error {
+  font-size: 12px;
+  line-height: 16px;
+  color: var(--critical);
+}
+
+/* 命名管道这类机器字符串：值本身仍是右对齐的一列，只是换成等宽小字 */
+.hc-setting-value .hc-mono {
+  font-family: Consolas, 'Cascadia Mono', monospace;
+  font-size: 12px;
+  font-weight: 400;
+}

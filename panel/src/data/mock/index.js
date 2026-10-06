@@ -1,4 +1,11 @@
-import { MOCK_FANS, MOCK_SENSORS, MOCK_SOURCES, MOCK_FAN_MAX_RPM, SERVICE_FIELDS } from './sources.js'
+import {
+  MOCK_FANS,
+  MOCK_FAN_CURVE,
+  MOCK_SENSORS,
+  MOCK_SOURCES,
+  MOCK_FAN_MAX_RPM,
+  SERVICE_FIELDS,
+} from './sources.js'
 import { simulateTelemetry } from './generator.js'
 
 /**
@@ -60,5 +67,6 @@ export function describeField(key) {
   }
   if (key === 'Sensors') return { kind: 'mock', label: '温度传感器', ...MOCK_SENSORS }
   if (key === 'Fans') return { kind: 'mock', label: '风扇转速', ...MOCK_FANS }
+  if (key === 'FanCurve') return { kind: 'mock', label: '风扇策略曲线', ...MOCK_FAN_CURVE }
   return { kind: 'live', label: key, reason: '来自 Honor Control 服务', reference: null }
 }

@@ -5,6 +5,10 @@ import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
 import App from './App.jsx'
 import { ThemeTokensContext, useAppTheme } from './app/theme.js'
 import './styles/global.css'
+import './styles/tokens.css'
+import './styles/design.css'
+import './styles/pages-control.css'
+import './styles/pages-history.css'
 
 /**
  * 查询客户端配置。
@@ -25,7 +29,10 @@ const queryClient = new QueryClient({
 function Root() {
   const { theme } = useAppTheme()
   return (
-    <FluentProvider theme={theme} style={{ height: '100%' }}>
+    // backgroundColor: transparent 是必须的：FluentProvider 默认会把 colorNeutralBackground1
+    // （深色下是 #292929）铺满整个应用，把 App 里那层模拟 Mica 的 --panel-backdrop 盖掉，
+    // 结果是"卡片浮在比设计稿亮一档的灰底上"，整页观感发灰。
+    <FluentProvider theme={theme} style={{ height: '100%', backgroundColor: 'transparent' }}>
       {/* SVG / 图表需要字面量色值（var() 在表现属性里无效），这里把当前主题传下去。 */}
       <ThemeTokensContext.Provider value={theme}>
         <QueryClientProvider client={queryClient}>

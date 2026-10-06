@@ -25,7 +25,9 @@ const missingIcons = new Map()
 for (const file of files) {
   const code = readFileSync(file, 'utf8')
 
-  for (const match of code.matchAll(/tokens\.([A-Za-z0-9_]+)/g)) {
+  // 只看真正的 `tokens.xxx` 用法：前面是 / 的（例如 import './styles/tokens.css'）
+  // 是文件名，不是 token 名，否则每次引用样式文件都会误报。
+  for (const match of code.matchAll(/(?<![./\w])tokens\.([A-Za-z0-9_]+)/g)) {
     const name = match[1]
     if (!(name in tokens)) {
       if (!missingTokens.has(name)) missingTokens.set(name, [])

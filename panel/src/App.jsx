@@ -1,25 +1,11 @@
 import { Suspense } from 'react'
-import {
-  Button,
-  Spinner,
-  Text,
-  makeStyles,
-  mergeClasses,
-  tokens,
-} from '@fluentui/react-components'
-import {
-  BatteryCharge24Regular,
-  Flash24Regular,
-  Gauge24Regular,
-  History24Regular,
-  Settings24Regular,
-  DataUsage24Regular,
-  WeatherMoon24Regular,
-  WeatherSunny24Regular,
-} from '@fluentui/react-icons'
+import { Spinner, makeStyles } from '@fluentui/react-components'
+import { useQueryClient } from '@tanstack/react-query'
 import { PAGES, useAppStore } from './app/store.js'
 import { useAppTheme } from './app/theme.js'
 import { useEnsureTray } from './app/useEnsureTray.js'
+import { useServiceHealth, useServiceSnapshot } from './data/queries.js'
+import { Icon } from './components/Icon.jsx'
 import { HomePage } from './pages/HomePage.jsx'
 import { BatterySettingsPage } from './pages/BatterySettingsPage.jsx'
 import { PerformanceSettingsPage } from './pages/PerformanceSettingsPage.jsx'
@@ -28,62 +14,11 @@ import { PowerHistoryPage } from './pages/PowerHistoryPage.jsx'
 import { AboutPage } from './pages/AboutPage.jsx'
 
 const useStyles = makeStyles({
-  root: {
-    display: 'flex',
-    flexDirection: 'column',
-    height: '100%',
-    position: 'relative',
-  },
-  backdrop: {
-    position: 'absolute',
-    inset: 0,
-    zIndex: -1,
-    backgroundColor: 'var(--panel-backdrop)',
-  },
+  root: { display: 'flex', flexDirection: 'column', height: '100%', position: 'relative' },
+  backdrop: { position: 'absolute', inset: 0, zIndex: -1, backgroundColor: 'var(--panel-backdrop)' },
   body: { display: 'flex', flex: 1, minHeight: 0 },
-  nav: {
-    width: '216px',
-    flexShrink: 0,
-    display: 'flex',
-    flexDirection: 'column',
-    gap: '2px',
-    padding: '12px 8px',
-    borderRight: `1px solid ${tokens.colorNeutralStroke3}`,
-  },
-  navItem: {
-    justifyContent: 'flex-start',
-    fontWeight: 400,
-  },
-  navItemActive: {
-    backgroundColor: tokens.colorNeutralBackground3,
-    fontWeight: 600,
-  },
-  header: {
-    display: 'flex',
-    alignItems: 'center',
-    justifyContent: 'space-between',
-    gap: '12px',
-    padding: '14px 20px 10px',
-  },
-  content: {
-    flex: 1,
-    minWidth: 0,
-    overflowY: 'auto',
-    padding: '0 20px 24px',
-    display: 'flex',
-    flexDirection: 'column',
-    gap: '14px',
-  },
+  loading: { display: 'flex', justifyContent: 'center', paddingTop: '48px' },
 })
-
-const ICONS = {
-  gauge: Gauge24Regular,
-  battery: BatteryCharge24Regular,
-  flash: Flash24Regular,
-  history: History24Regular,
-  chart: DataUsage24Regular,
-  settings: Settings24Regular,
-}
 
 const PAGE_COMPONENTS = {
   home: HomePage,
@@ -95,10 +30,10 @@ const PAGE_COMPONENTS = {
 }
 
 /**
- * 应用外壳：左侧导航 + 内容区。
+ * 应用外壳：左侧导航 + 页面头 + 内容区。
  *
- * 导航用按钮而不是 TabList：面板只有 6 个固定页面，按钮更容易控制图标与选中态，
- * 也省掉 TabList 的键盘语义适配。
+ * 结构照设计稿：导航栏（分组标题 + 贴底的设置 + 设备页脚）与内容区并列，
+ * 内容区上方是固定的页面头（标题 / 副标题 / 主题切换 + 刷新），下面是可滚动的页面本体。
  * 窗口边框用系统自带的（tauri.conf.json 里 decorations: true），不自绘标题栏。
  */
 export default function App() {
@@ -106,60 +41,124 @@ export default function App() {
   const page = useAppStore((state) => state.page)
   const setPage = useAppStore((state) => state.setPage)
   const { isDark, themeMode, setThemeMode } = useAppTheme()
+  const queryClient = useQueryClient()
+  const { serviceReachable } = useServiceHealth()
+  const { snapshot } = useServiceSnapshot()
 
   // OnDemand 策略的落地：用户打开面板就算「到场」，由面板把托盘拉起来（幂等，重复调用无害）。
   useEnsureTray()
 
   const CurrentPage = PAGE_COMPONENTS[page] ?? HomePage
-  const currentTitle = PAGES.find((item) => item.id === page)?.label ?? '首页'
+  const current = PAGES.find((item) => item.id === page) ?? PAGES[0]
+  const pinned = PAGES.filter((item) => item.pinned)
+  const groups = PAGES.filter((item) => !item.pinned).reduce((acc, item) => {
+    const key = item.group ?? ''
+    acc[key] = acc[key] ?? []
+    acc[key].push(item)
+    return acc
+  }, {})
+
+  const renderItem = (item) => (
+    <button
+      key={item.id}
+      type="button"
+      className="hc-nav-item"
+      aria-selected={item.id === page}
+      aria-current={item.id === page ? 'page' : undefined}
+      onClick={() => setPage(item.id)}
+    >
+      <Icon name={item.icon} />
+      <span className="hc-nav-label">{item.label}</span>
+    </button>
+  )
 
   return (
     <div className={styles.root}>
       <div className={styles.backdrop} />
 
-      <header className={styles.header}>
-        <div>
-          <Text size={500} weight="semibold">Honor Control</Text>
-          <br />
-          <Text size={200} style={{ color: tokens.colorNeutralForeground3 }}>
-            {currentTitle}
-          </Text>
-        </div>
-        <Button
-          appearance="subtle"
-          icon={isDark ? <WeatherSunny24Regular /> : <WeatherMoon24Regular />}
-          onClick={() => setThemeMode(isDark ? 'light' : 'dark')}
-          title={`当前：${themeMode === 'system' ? '跟随系统' : themeMode === 'dark' ? '深色' : '浅色'}`}
-        >
-          {isDark ? '浅色' : '深色'}
-        </Button>
-      </header>
-
       <div className={styles.body}>
-        <nav className={styles.nav}>
-          {PAGES.map((item) => {
-            const Icon = ICONS[item.icon] ?? Gauge24Regular
-            const active = item.id === page
-            return (
-              <Button
-                key={item.id}
-                appearance={active ? 'subtle' : 'transparent'}
-                icon={<Icon />}
-                className={mergeClasses(styles.navItem, active && styles.navItemActive)}
-                onClick={() => setPage(item.id)}
-              >
-                {item.label}
-              </Button>
-            )
-          })}
+        <nav className="hc-nav" aria-label="主导航">
+          <div className="hc-nav-list">
+            {groups['']?.map(renderItem)}
+
+            {Object.entries(groups)
+              .filter(([group]) => group)
+              .map(([group, items]) => (
+                <div key={group}>
+                  <div className="hc-nav-group-title">{group}</div>
+                  {items.map(renderItem)}
+                </div>
+              ))}
+
+            <div style={{ flex: 1 }} />
+            {pinned.map(renderItem)}
+          </div>
+
+          <div className="hc-nav-foot">
+            <span className="hc-avatar" aria-hidden="true">
+              HC
+            </span>
+            <span className="hc-nav-foot-text">
+              <b>Honor Control</b>
+              {serviceReachable ? serviceFooterText(snapshot) : '后台服务未连接'}
+            </span>
+          </div>
         </nav>
 
-        <main className={styles.content}>
-          <Suspense fallback={<Spinner label="正在加载…" />}>
-            <CurrentPage />
-          </Suspense>
+        <main className="hc-content">
+          <div className="hc-page-head">
+            <div>
+              <div className="hc-page-title">{current.label}</div>
+              <div className="hc-page-sub">{current.subtitle}</div>
+            </div>
+            <div className="hc-page-actions">
+              <button
+                type="button"
+                className="hc-tbtn"
+                aria-pressed={isDark}
+                title={`当前：${themeMode === 'system' ? '跟随系统' : themeMode === 'dark' ? '深色' : '浅色'}`}
+                onClick={() => setThemeMode(isDark ? 'light' : 'dark')}
+              >
+                <Icon name={isDark ? 'sun' : 'moon'} />
+                {isDark ? '浅色' : '深色'}
+              </button>
+              <button
+                type="button"
+                className="hc-btn"
+                onClick={() => queryClient.invalidateQueries()}
+              >
+                <Icon name="refresh" />
+                刷新
+              </button>
+            </div>
+          </div>
+
+          <div className="hc-page-scroll">
+            <div className="hc-page">
+              <div className="hc-grid">
+                <Suspense
+                  fallback={
+                    <div className={styles.loading}>
+                      <Spinner label="正在加载…" />
+                    </div>
+                  }
+                >
+                  <CurrentPage />
+                </Suspense>
+              </div>
+            </div>
+          </div>
         </main>
       </div>
     </div>
   )
+}
+
+/** 导航页脚第二行：供电状态 + 电脑管家是否占用（都来自服务快照，不是猜的）。 */
+function serviceFooterText(snapshot) {
+  const parts = []
+  if (snapshot?.Actual?.IsOnAcPower === true) parts.push('已接通电源')
+  else if (snapshot?.Actual?.IsOnAcPower === false) parts.push('电池供电')
+  if (snapshot?.Actual?.PcManagerOpen) parts.push('电脑管家运行中')
+  return parts.length > 0 ? parts.join(' · ') : '服务已连接'
 }

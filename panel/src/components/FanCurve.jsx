@@ -1,144 +1,119 @@
-import { useMemo } from 'react'
-import {
-  CartesianGrid,
-  Line,
-  LineChart,
-  ReferenceDot,
-  ReferenceLine,
-  ResponsiveContainer,
-  Tooltip as ChartTooltip,
-  XAxis,
-  YAxis,
-} from 'recharts'
-import { Text, makeStyles, tokens } from '@fluentui/react-components'
-import { useThemeTokens } from '../app/theme.js'
-import { EXAMPLE_CURVES_BY_MODE, rpmForTemperature } from '../data/fanCurve.js'
-
-const useStyles = makeStyles({
-  wrap: { width: '100%', height: '200px' },
-  legend: {
-    display: 'flex',
-    gap: '14px',
-    flexWrap: 'wrap',
-    color: tokens.colorNeutralForeground3,
-  },
-  swatch: {
-    display: 'inline-block',
-    width: '10px',
-    height: '10px',
-    borderRadius: '2px',
-    marginRight: '5px',
-  },
-})
+import { useElementWidth } from '../app/useElementWidth.js'
+import { FAN_MAX_RPM, curveRpm } from '../data/fanCurve.js'
+import { temperatureTone } from '../data/derive.js'
 
 /**
- * 风扇曲线：横轴温度、纵轴转速。
+ * 风扇曲线 —— 设计稿里的 `.curve`。
  *
- * 之所以画曲线而不是并排列几个数字：性能模式决定的就是这条曲线。
- * 各传感器是曲线上的竖线+点（当前温度、该温度下策略要求的转速），
- * 实心点是实际工作点（最高温度 × 实际转速）——它应该落在曲线上，偏离说明风扇没跟上策略。
+ * 横轴温度、纵轴转速，**曲线本身就是当前性能模式的散热策略**：模式决定策略，
+ * 传感器是曲线上的竖线加一个点（该温度下策略要求多少转速），带光环的实心点是
+ * 实际工作点（最高温度 × 实际平均转速）——它应该落在曲线上，偏离说明风扇没跟上策略。
  *
- * ⚠️ 曲线本身是示例策略（见 data/fanCurve.js 的说明）；温度和转速按当前数据来源可能是示例数据，
- * 卡片上会单独标注。
+ * 用 SVG 而不是图表库：这张图的每个元素都要和左侧传感器列表**同色对齐**
+ * （色点、竖线、点、读数共用一个 tone），图表库要绕一圈才能做到，
+ * 而这里直接算坐标更短也更准。
  */
-export function FanCurve({ sensors = [], fans = [], performanceMode = 1 }) {
-  const styles = useStyles()
-  // Recharts 把 stroke/fill 写成 SVG 属性，而 token 是 var(--…) 字符串——属性里不生效，
-  // 所以图表颜色统一取主题里的字面量色值（CSS 里的 tokens 不受影响）。
-  const theme = useThemeTokens()
-  const curve = EXAMPLE_CURVES_BY_MODE[performanceMode] ?? EXAMPLE_CURVES_BY_MODE[1]
-  const maxRpm = Math.max(...curve.map((point) => point.r), ...fans.map((fan) => fan.MaxRpm ?? 0), 6000)
+const CP = { padL: 46, padR: 16, padT: 16, padB: 28, h: 210 }
 
-  const data = useMemo(() => {
-    // 把折线加密成采样点，recharts 的 monotone 曲线会更平滑
-    const step = 2.5
+const TONE_COLOR = {
+  ok: 'var(--success)',
+  warn: 'var(--caution)',
+  hot: 'var(--critical)',
+  neutral: 'var(--neutral)',
+}
+
+export function FanCurve({ sensors = [], fans = [], policy }) {
+  const [wrapRef, width] = useElementWidth()
+  const W = Math.max(360, Math.round(width) || 560)
+
+  const tx = (t) => CP.padL + (Math.min(100, Math.max(0, t)) / 100) * (W - CP.padL - CP.padR)
+  const ry = (r) => CP.h - CP.padB - (Math.min(FAN_MAX_RPM, Math.max(0, r)) / FAN_MAX_RPM) * (CP.h - CP.padB - CP.padT)
+
+  const hasFans = fans.length > 0
+  let curvePath = ''
+  let areaPath = ''
+  if (hasFans) {
     const points = []
-    for (let t = 25; t <= 100; t += step) {
-      points.push({ t, r: rpmForTemperature(curve, t) })
+    for (let t = 0; t <= 100; t += 1) {
+      points.push(`${t === 0 ? 'M' : 'L'}${tx(t).toFixed(1)} ${ry(curveRpm(policy, t)).toFixed(1)}`)
     }
-    return points
-  }, [curve])
+    curvePath = points.join(' ')
+    areaPath = `${curvePath} L${tx(100).toFixed(1)} 182 L${tx(0).toFixed(1)} 182 Z`
+  }
 
   const hottest = sensors.reduce(
     (acc, sensor) => (acc === null || sensor.TempC > acc.TempC ? sensor : acc),
     null,
   )
-  const averageRpm = fans.length
-    ? fans.reduce((sum, fan) => sum + fan.Rpm, 0) / fans.length
-    : null
+  const averageRpm = hasFans ? fans.reduce((sum, fan) => sum + fan.Rpm, 0) / fans.length : null
+  const showOp = hasFans && hottest !== null && averageRpm !== null && hottest.TempC <= 100
 
   return (
-    <div>
-      <div className={styles.wrap}>
-        <ResponsiveContainer width="100%" height="100%">
-          <LineChart data={data} margin={{ top: 8, right: 12, bottom: 4, left: -18 }}>
-            <CartesianGrid stroke={theme.colorNeutralStroke3} strokeDasharray="3 4" />
-            <XAxis
-              dataKey="t"
-              type="number"
-              domain={[25, 100]}
-              ticks={[30, 45, 60, 75, 90]}
-              tick={{ fontSize: 11, fill: theme.colorNeutralForeground3 }}
-              unit="°"
-            />
-            <YAxis
-              domain={[0, maxRpm]}
-              tick={{ fontSize: 11, fill: theme.colorNeutralForeground3 }}
-              width={54}
-            />
-            <ChartTooltip
-              contentStyle={{ fontSize: 12 }}
-              formatter={(value, name) => (name === 'r' ? [`${Math.round(value)} RPM`, '策略转速'] : [value, name])}
-              labelFormatter={(label) => `${label} °C`}
-            />
-            <Line
-              type="monotone"
-              dataKey="r"
-              stroke={theme.colorBrandStroke1}
-              strokeWidth={2}
-              dot={false}
-              isAnimationActive={false}
-            />
+    <div className="hc-curve-wrap" ref={wrapRef}>
+      <svg className="hc-curve" viewBox={`0 0 ${W} ${CP.h}`} role="img" aria-label="温度与转速的风扇策略曲线">
+        <g className="hc-curve-grid">
+          {[0, 25, 50, 75, 100].map((t) => (
+            <line key={`x${t}`} x1={tx(t)} y1={CP.padT} x2={tx(t)} y2={CP.h - CP.padB} />
+          ))}
+          {[0, 3000, 6000].map((r) => (
+            <line key={`y${r}`} x1={CP.padL} y1={ry(r)} x2={W - CP.padR} y2={ry(r)} />
+          ))}
+          {[0, 25, 50, 75, 100].map((t) => (
+            <text
+              key={`xt${t}`}
+              x={tx(t)}
+              y={CP.h - 8}
+              textAnchor={t === 0 ? 'start' : t === 100 ? 'end' : 'middle'}
+            >
+              {t === 100 ? '100 °C' : t}
+            </text>
+          ))}
+          {[0, 3000, 6000].map((r) => (
+            <text key={`yt${r}`} x={CP.padL - 8} y={ry(r) + 4} textAnchor="end">
+              {r === 0 ? '0' : `${r / 1000}k`}
+            </text>
+          ))}
+          <text x={CP.padL - 8} y={CP.padT - 4} textAnchor="end">
+            RPM
+          </text>
+        </g>
 
-            {/* 每个传感器一条竖线：读出"当前温度落在策略的什么位置" */}
-            {sensors.map((sensor) => (
-              <ReferenceLine
-                key={sensor.Id}
-                x={sensor.TempC}
-                stroke={theme.colorNeutralStroke1}
-                strokeDasharray="3 3"
+        {hasFans ? (
+          <>
+            <path className="hc-curve-area" d={areaPath} />
+            <path className="hc-curve-line" d={curvePath} />
+          </>
+        ) : null}
+
+        {sensors.map((sensor) => {
+          const tone = TONE_COLOR[temperatureTone(sensor.TempC, sensor.WarnC, sensor.HotC)] ?? TONE_COLOR.neutral
+          return (
+            <g className="hc-curve-mark" key={sensor.Id} style={{ color: tone }}>
+              <line
+                x1={tx(sensor.TempC)}
+                y1={CP.padT}
+                x2={tx(sensor.TempC)}
+                y2={CP.h - CP.padB}
+                stroke={tone}
               />
-            ))}
+              {/* 曲线上的点表达"该温度下策略要求多少转速"，没有风扇读数时就不画 */}
+              {hasFans ? <circle cx={tx(sensor.TempC)} cy={ry(curveRpm(policy, sensor.TempC))} r="4" fill={tone} /> : null}
+            </g>
+          )
+        })}
 
-            {/* 实际工作点：最高温 × 实际平均转速 */}
-            {hottest && averageRpm !== null && hottest.TempC <= 100 ? (
-              <ReferenceDot
-                x={hottest.TempC}
-                y={averageRpm}
-                r={6}
-                fill={theme.colorPaletteGreenBackground3}
-                stroke={theme.colorNeutralBackground1}
-                strokeWidth={2}
-              />
-            ) : null}
-          </LineChart>
-        </ResponsiveContainer>
-      </div>
-
-      <div className={styles.legend}>
-        <Text size={200}>
-          <span className={styles.swatch} style={{ background: tokens.colorBrandStroke1 }} />
-          策略曲线（示例）
-        </Text>
-        <Text size={200}>
-          <span className={styles.swatch} style={{ background: tokens.colorNeutralStroke1 }} />
-          传感器当前温度
-        </Text>
-        <Text size={200}>
-          <span className={styles.swatch} style={{ background: tokens.colorPaletteGreenBackground3 }} />
-          实际工作点
-        </Text>
-      </div>
+        {showOp ? (
+          <>
+            <circle className="hc-op-halo" r="10" cx={tx(hottest.TempC)} cy={ry(averageRpm)} />
+            <circle className="hc-op-dot" r="4.5" cx={tx(hottest.TempC)} cy={ry(averageRpm)} />
+          </>
+        ) : (
+          <>
+            <circle className="hc-op-halo" r="10" cx="-99" cy="-99" />
+            <circle className="hc-op-dot" r="4.5" cx="-99" cy="-99" />
+          </>
+        )}
+      </svg>
     </div>
   )
 }

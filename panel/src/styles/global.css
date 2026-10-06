@@ -1,17 +1,11 @@
-/* 面板全局样式：只放真正全局的东西（底色、字体、滚动条、共享动画），
-   组件样式一律用 Fluent 的 makeStyles，避免两套样式体系打架。 */
+/* 面板全局样式：只放真正全局的东西（底色、字体、滚动条、共享动画）。
+   组件样式一律用 Fluent 的 makeStyles；设计稿移植过来的卡片与图形样式在 design.css。
+
+   注意：主题色板（--panel-backdrop、--temp-gradient 等）统一在 tokens.css 里定义，
+   这里不再重复定义，避免两处各写一份、改一处忘一处。 */
 
 :root {
   color-scheme: light;
-  /* Mica 不可用时的回退底色（见 App 里的 .app-backdrop） */
-  --panel-backdrop: rgba(243, 243, 243, 0.86);
-  /* 温度色阶：温度条、指针、图例共用一条渐变，保证任何地方读到的颜色含义一致 */
-  --temp-gradient: linear-gradient(90deg, #3b82f6 0%, #22c55e 35%, #eab308 70%, #ef4444 100%);
-}
-
-:root[data-theme='dark'] {
-  color-scheme: dark;
-  --panel-backdrop: rgba(26, 26, 26, 0.86);
 }
 
 html,

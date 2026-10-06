@@ -1,63 +1,73 @@
-import { makeStyles, tokens } from '@fluentui/react-components'
-import { useThemeTokens } from '../app/theme.js'
-
-const useStyles = makeStyles({
-  wrap: { display: 'flex', alignItems: 'center', gap: '10px' },
-  rotor: {
-    display: 'block',
-    transformBox: 'fill-box',
-    transformOrigin: 'center',
-    // 转速用动画时长表达：动画只说明"在转"和转得多快，不参与任何计算
-    animationName: 'panel-fan-spin',
-    animationIterationCount: 'infinite',
-    animationTimingFunction: 'linear',
-  },
-  rpm: { fontVariantNumeric: 'tabular-nums' },
-})
+import { FAN_MAX_RPM } from '../data/fanCurve.js'
 
 /**
- * 风扇转子。
+ * 风扇转子 —— 设计稿里的 `.fan-rotor` + `.rotor`。
  *
- * 叶片用参数化的后掠形状（前缘外凸、后缘内凹），不是对称花瓣；
- * 转速映射取非线性，低转速段也能看出在转，高转速段有明显加速感。
+ * 几何按原稿的参数化叶片生成：前缘外凸、后缘内凹、中段收窄，5 片每片转 72°。
+ * 转速用动画周期表达（非线性映射：低转速段也看得出在转，高转速段有明显加速感），
+ * 超过 85% 上限时叶片转成警示色。转速本身是数据，所以减弱动效时是**降速**而不是停转。
  */
-export function FanRotor({ rpm = 0, maxRpm = 6000, size = 54 }) {
-  const styles = useStyles()
-  // SVG 属性不支持 var()，Fluent token 是 var(--…) 字符串，所以这里改用主题里的字面量色值
-  const theme = useThemeTokens()
+
+/** 参数化叶片路径：P(r,deg) 围绕 (cx,cy)，sweep 是叶片整体的后掠角。 */
+function bladePath(cx, cy, r0, r1, a0, a1, sweep) {
+  const rad = (deg) => (deg * Math.PI) / 180
+  const point = (r, deg) => [cx + r * Math.cos(rad(deg)), cy + r * Math.sin(rad(deg))]
+  const round = ([x, y]) => `${x.toFixed(2)} ${y.toFixed(2)}`
+
+  const rf = point(r0, a0)
+  const tf = point(r1, a0 + sweep)
+  const c1 = point((r0 + r1) / 2 + 2.5, a0 + sweep * 0.42)
+  const c2 = point(r1 + 1.5, (a0 + a1) / 2 + sweep)
+  const c3 = point(r0 + 4, a1 + sweep * 0.42)
+  const tb = point(r1, a1 + sweep)
+  const rb = point(r0, a1)
+
+  return `M${round(rf)} Q ${round(c1)} ${round(tf)} Q ${round(c2)} ${round(tb)} Q ${round(c3)} ${round(rb)} Z`
+}
+
+const BLADE = bladePath(32, 32, 7, 26, 0, 22, 48)
+const BLADE_ANGLES = [0, 72, 144, 216, 288]
+
+/** 转速 → 每转耗时（秒）：0 → 2.60s，3000 → 1.20s，6000 → 0.25s。 */
+export function secondsPerTurn(rpm, maxRpm = FAN_MAX_RPM) {
+  const ratio = Math.min(1, Math.max(0, rpm / maxRpm))
+  return 2.6 - Math.pow(ratio, 0.75) * 2.35
+}
+
+export function FanRotor({ label, rpm = 0, maxRpm = FAN_MAX_RPM }) {
   const ratio = Math.min(1, Math.max(0, rpm / maxRpm))
   const stopped = rpm < 120
-  const secondsPerTurn = Math.max(0.2, 2.6 - Math.pow(ratio, 0.75) * 2.35)
   const hot = ratio > 0.85
 
-  const blade = 'M0,-9 C7,-15 15,-19 22,-17 C17,-11 13,-5 11,1 C7,-4 3,-7 0,-9 Z'
-  const blades = [0, 72, 144, 216, 288]
-
   return (
-    <div className={styles.wrap}>
-      <svg width={size} height={size} viewBox="-30 -30 60 60" role="img" aria-label={`风扇转速 ${Math.round(rpm)} 转每分`}>
-        <circle cx="0" cy="0" r="27" fill="none" stroke={theme.colorNeutralStroke2} strokeWidth="2" />
-        <g
-          className={styles.rotor}
-          style={{
-            animationDuration: `${secondsPerTurn}s`,
-            animationPlayState: stopped ? 'paused' : 'running',
-          }}
+    <div className="hc-fan-mini">
+      <span className="hc-fan-rotor">
+        <svg
+          className="hc-rotor-svg"
+          viewBox="0 0 64 64"
+          role="img"
+          aria-label={`${label} 转速 ${Math.round(rpm)} 转每分`}
         >
-          {blades.map((angle) => (
-            <path
-              key={angle}
-              d={blade}
-              transform={`rotate(${angle})`}
-              fill={hot ? theme.colorPaletteDarkOrangeBackground3 : theme.colorBrandBackground2}
-              stroke={theme.colorNeutralStroke1}
-              strokeWidth="0.6"
-            />
-          ))}
-        </g>
-        <circle cx="0" cy="0" r="8" fill={theme.colorNeutralBackground3} stroke={theme.colorNeutralStroke1} />
-      </svg>
-      <span className={styles.rpm}>{Math.round(rpm).toLocaleString('zh-CN')} RPM</span>
+          <circle className="hc-fan-ring" cx="32" cy="32" r="29.5" />
+          <g
+            className={stopped ? 'hc-rotor is-still' : 'hc-rotor'}
+            style={{
+              '--spin': `${secondsPerTurn(rpm, maxRpm).toFixed(2)}s`,
+              fill: hot ? 'var(--caution)' : 'var(--accent)',
+            }}
+          >
+            {BLADE_ANGLES.map((angle) => (
+              <path key={angle} d={BLADE} transform={`rotate(${angle} 32 32)`} />
+            ))}
+          </g>
+          <circle className="hc-fan-hub" cx="32" cy="32" r="7" />
+          <circle className="hc-fan-pin" cx="32" cy="32" r="2.2" />
+        </svg>
+      </span>
+      <span className="hc-fan-name">{label}</span>
+      <span className="hc-fan-rpm">
+        <b>{Math.round(rpm).toLocaleString('en-US')}</b> RPM
+      </span>
     </div>
   )
 }

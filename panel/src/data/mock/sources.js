@@ -66,6 +66,13 @@ export const MOCK_FANS = {
   reference: '真机实测 + research/conclusions.md 第 388 行',
 }
 
+/** 风扇策略曲线：既读不到也写不了，曲线图上的形态是示例策略。 */
+export const MOCK_FAN_CURVE = {
+  serviceSupport: 'no',
+  reason: '风扇策略的读/写都要经过荣耀内核驱动（\\.\\WDT0001）+ NLD 风扇库，没有用户态通道，因此曲线形态是按"温度越高转速越高"画的示例策略，不代表本机固件里的真实曲线。',
+  reference: 'research/conclusions.md 第 212 行',
+}
+
 /**
  * 服务已经能提供的字段，列在这里是为了在"数据来源"面板里能对照展示，
  * 同时也作为"全量示例数据"模式的字段清单。

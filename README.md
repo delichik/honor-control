@@ -36,6 +36,8 @@ npm run tauri dev  # 真正的桌面窗口（需要 Rust 工具链、MSVC 与 We
 
 前端只需要 Node.js（≥ 22）；桌面外壳与打包额外需要 Rust 与 MSVC 生成工具。服务拿不到的指标（CPU/GPU 温度、风扇转速、适配器功率等）当前用**示例数据占位并带"示例"角标**，原因与出处集中记在 `panel/src/data/mock/sources.js`；服务端协议现状（v1）与面板的降级策略见 `panel/README.md`。
 
+界面的视觉规格来自 `docs/home-ui-design-spec.md`——设计稿（`battery-console-winui.html`）的逐项拆解，每个颜色、尺寸、曲线公式都标了原稿行号；面板的卡片与图形层按它逐值实现（控件仍走 Fluent UI），见 `panel/README.md` 的"视觉规格从哪来"。
+
 GitHub Actions 负责发布和打包。安装器要求管理员权限以注册服务；日常界面以普通用户权限运行。CI 编译成功不等于目标机器上的安装、界面、WMI 或服务验证通过。
 
 ## GitHub Actions 构建

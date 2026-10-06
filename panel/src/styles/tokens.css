@@ -1,0 +1,184 @@
+/* ==========================================================================
+   设计 token —— 逐条对齐设计稿 battery-console-winui.html（WinUI 3 / Windows 11 语义色板）。
+
+   主题通过 <html data-theme="dark|light"> 切换，这个属性由 app/theme.js 写入，
+   所以这里用属性选择器即可，不需要 JS 参与。
+
+   与 Fluent UI 的关系：Fluent 的 webLightTheme/webDarkTheme 继续负责控件（按钮、开关、
+   下拉框）的观感；本文件负责"卡片与图形"这一层——设计稿里的图形细节（母线、电池本体、
+   温度色阶、曲线）用 Fluent token 表达不出来，逐值照搬设计稿比重新映射更不容易走样。
+   两套变量同时存在，互不覆盖：Fluent 的 token 是 --color*，这里是 --card/--accent 等。
+   ========================================================================== */
+
+:root {
+  --font-text: 'Segoe UI Variable Text', 'Segoe UI', system-ui, -apple-system, 'Microsoft YaHei UI',
+    'Microsoft YaHei', sans-serif;
+  --font-display: 'Segoe UI Variable Display', 'Segoe UI Variable Text', 'Segoe UI', system-ui,
+    'Microsoft YaHei UI', sans-serif;
+
+  /* WinUI 的动效曲线与时长 */
+  --ease-out: cubic-bezier(0, 0, 0, 1); /* FluentEaseOut */
+  --ease-in: cubic-bezier(1, 0, 1, 1); /* FluentEaseIn */
+  --dur-fast: 150ms;
+  --dur: 250ms;
+  --dur-slow: 350ms;
+
+  /* 控件圆角 4px / 卡片浮出圆角 7px（ControlCornerRadius / OverlayCornerRadius） */
+  --radius-sm: 3px;
+  --radius: 4px;
+  --radius-lg: 7px;
+  --radius-window: 8px;
+
+  --nav-w: 232px;
+  --content-max: 1400px;
+}
+
+/* 深色：WinUI 的 SolidBackgroundBase(#202020) + 5% 白色叠加层 */
+:root[data-theme='dark'] {
+  color-scheme: dark;
+
+  --mica: rgba(26, 26, 28, 0.8);
+  --bg-base: #202020;
+  --layer: rgba(58, 58, 58, 0.32);
+  --card: rgba(255, 255, 255, 0.0512);
+  --card-secondary: rgba(255, 255, 255, 0.0325);
+  --card-stroke: rgba(255, 255, 255, 0.0698);
+  --card-stroke-strong: rgba(255, 255, 255, 0.0939);
+  --divider: rgba(255, 255, 255, 0.0837);
+  --ctrl-fill: rgba(255, 255, 255, 0.0605);
+  --ctrl-fill-secondary: rgba(255, 255, 255, 0.0837);
+  --ctrl-fill-tertiary: rgba(255, 255, 255, 0.0325);
+  --ctrl-fill-disabled: rgba(255, 255, 255, 0.0421);
+  --ctrl-stroke: rgba(255, 255, 255, 0.0698);
+  --ctrl-stroke-secondary: rgba(255, 255, 255, 0.0939);
+  --ctrl-stroke-disabled: rgba(255, 255, 255, 0.0698);
+  --ctrl-solid: #454545;
+  --ctrl-strong: rgba(255, 255, 255, 0.5442);
+  --subtle-hover: rgba(255, 255, 255, 0.0605);
+  --subtle-pressed: rgba(255, 255, 255, 0.0419);
+  --text-primary: #ffffff;
+  --text-secondary: rgba(255, 255, 255, 0.786);
+  --text-tertiary: rgba(255, 255, 255, 0.5442);
+  --text-disabled: rgba(255, 255, 255, 0.3628);
+  --accent: #60cdff;
+  --accent-hover: #7ad8ff;
+  --accent-pressed: #4db8e8;
+  --accent-text: #000000;
+  --accent-subtle: rgba(96, 205, 255, 0.12);
+  --accent-subtle-2: rgba(96, 205, 255, 0.06);
+  --hatch: rgba(96, 205, 255, 0.3);
+  --wire: rgba(255, 255, 255, 0.26);
+  --success: #6ccb5f;
+  --success-bg: rgba(108, 203, 95, 0.1);
+  --caution: #fce100;
+  --caution-bg: rgba(252, 225, 0, 0.1);
+  --critical: #ff99a4;
+  --critical-bg: rgba(255, 153, 164, 0.11);
+  --neutral: #9d9d9d;
+  --temp-grad: linear-gradient(
+    90deg,
+    #4cc2ff 0%,
+    #6ccb5f 26%,
+    #b8d94a 50%,
+    #fce100 68%,
+    #ff9f43 84%,
+    #ff5f56 100%
+  );
+  --needle-halo: rgba(0, 0, 0, 0.45);
+  --chart-grid: rgba(255, 255, 255, 0.06);
+  --shadow-flyout: 0 8px 16px rgba(0, 0, 0, 0.26);
+  /* 窗口底色：设计稿的窗口是 Mica(rgba(26,26,28,.80)) 盖在深色壁纸上的结果，
+     实测落在 #181B24 附近（偏蓝来自壁纸的渐变）。面板没有壁纸可透，就直接给等价的实底，
+     这样"卡片浮在什么底色上"与设计稿一致。 */
+  --panel-backdrop: rgba(22, 25, 33, 0.88);
+}
+
+/* 浅色：WinUI 的 SolidBackgroundBase(#f3f3f3) + 70% 白色卡片层 */
+:root[data-theme='light'] {
+  color-scheme: light;
+
+  --mica: rgba(243, 243, 243, 0.82);
+  --bg-base: #f3f3f3;
+  --layer: rgba(255, 255, 255, 0.5);
+  --card: rgba(255, 255, 255, 0.7);
+  --card-secondary: rgba(255, 255, 255, 0.5);
+  --card-stroke: rgba(0, 0, 0, 0.0578);
+  --card-stroke-strong: rgba(0, 0, 0, 0.1);
+  --divider: rgba(0, 0, 0, 0.0803);
+  --ctrl-fill: rgba(255, 255, 255, 0.7);
+  --ctrl-fill-secondary: rgba(249, 249, 249, 0.5);
+  --ctrl-fill-tertiary: rgba(249, 249, 249, 0.3);
+  --ctrl-fill-disabled: rgba(249, 249, 249, 0.3);
+  --ctrl-stroke: rgba(0, 0, 0, 0.0578);
+  --ctrl-stroke-secondary: rgba(0, 0, 0, 0.1622);
+  --ctrl-stroke-disabled: rgba(0, 0, 0, 0.0578);
+  --ctrl-solid: #ffffff;
+  --ctrl-strong: rgba(0, 0, 0, 0.4458);
+  --subtle-hover: rgba(0, 0, 0, 0.0373);
+  --subtle-pressed: rgba(0, 0, 0, 0.0241);
+  --text-primary: rgba(0, 0, 0, 0.8956);
+  --text-secondary: rgba(0, 0, 0, 0.6063);
+  --text-tertiary: rgba(0, 0, 0, 0.4458);
+  --text-disabled: rgba(0, 0, 0, 0.3614);
+  --accent: #005fb8;
+  --accent-hover: #0a6cc9;
+  --accent-pressed: #00529e;
+  --accent-text: #ffffff;
+  --accent-subtle: rgba(0, 95, 184, 0.1);
+  --accent-subtle-2: rgba(0, 95, 184, 0.05);
+  --hatch: rgba(0, 95, 184, 0.26);
+  --wire: rgba(0, 0, 0, 0.22);
+  --success: #0f7b0f;
+  --success-bg: rgba(15, 123, 15, 0.08);
+  --caution: #9d5d00;
+  --caution-bg: rgba(157, 93, 0, 0.08);
+  --critical: #c42b1c;
+  --critical-bg: rgba(196, 43, 28, 0.08);
+  --neutral: #616161;
+  --temp-grad: linear-gradient(
+    90deg,
+    #0f8fd6 0%,
+    #0f7b0f 26%,
+    #7a8a12 50%,
+    #c9a800 68%,
+    #d97316 84%,
+    #c42b1c 100%
+  );
+  --needle-halo: rgba(255, 255, 255, 0.95);
+  --chart-grid: rgba(0, 0, 0, 0.06);
+  --shadow-flyout: 0 8px 16px rgba(0, 0, 0, 0.14);
+  /* 与深色同理：设计稿浅色窗口实测落在 #F0F0F2 附近 */
+  --panel-backdrop: rgba(240, 240, 242, 0.88);
+}
+
+@keyframes hc-dash-fwd {
+  to {
+    stroke-dashoffset: -28;
+  }
+}
+@keyframes hc-spin {
+  to {
+    transform: rotate(360deg);
+  }
+}
+
+@keyframes hc-pulse {
+  0%,
+  100% {
+    opacity: 1;
+  }
+  50% {
+    opacity: 0.25;
+  }
+}
+
+@keyframes hc-page-in {
+  from {
+    opacity: 0;
+    transform: translateY(6px);
+  }
+  to {
+    opacity: 1;
+    transform: none;
+  }
+}

@@ -24,9 +24,9 @@
 ```text
 panel/
   src/
-    App.jsx                 外层：左侧导航 + 内容区
+    App.jsx                 外层：左侧导航 + 页面头 + 内容区
     main.jsx                Provider（Fluent 主题 + Query Client）
-    app/                    纯 UI 状态：store / theme / useNow / useRecentSamples
+    app/                    纯 UI 状态：store / theme / useNow / useRecentSamples / useElementWidth
     data/
       contract.js           与服务的通信契约（字段、命令、协议版本、口径常量）
       transport.js          唯一出口：invoke → Rust → 命名管道
@@ -39,11 +39,45 @@ panel/
         generator.js        时间纯函数的物理模型（自洽的示例数据）
         transport.js        浏览器/无服务时模拟服务端响应
         index.js            示例数据注入点（applyMockPolicy）
-    components/             卡片、电池图形、功率流向、风扇、曲线、状态横幅…
+    components/
+      SectionCard.jsx       卡片外壳（设计稿的 .card）
+      Icon.jsx              内联 SVG 图标（设计稿的图标库）
+      Controls.jsx          ToggleSwitch / Slider / SelectorBar / 单选卡 / 统计块 / 设置行
+      BatteryGauge.jsx      电池本体（电量 + 充电窗口 + 可拖动阈值）
+      PowerBus.jsx          供电母线（按像素重算的线路 + 线路上的功率标签）
+      PowerCard.jsx         电源卡：节点 + 母线 + 电池 + 读数
+      ThermalCard.jsx       性能与散热卡：传感器 + 风扇曲线 + 风扇
+      FanCurve.jsx / FanRotor.jsx / SensorBar.jsx / ModeBar.jsx
+      PowerChart.jsx        首页 60 秒功率曲线
+      HistoryChart.jsx      历史曲线（多序列、可调高度）
+      InfoBar.jsx           提示条（服务状态与写入结果共用）
+      StatusBanner.jsx      服务状态横幅（组合 InfoBar）
+      MockBadge.jsx         "示例数据"角标（悬停说明为什么拿不到）
+      DataSourcePanel.jsx   "数据来源"面板
+    styles/
+      global.css            底色、字体、滚动条
+      tokens.css            设计 token（深/浅两套 CSS 变量）
+      design.css            卡片与图形层（设计稿的逐值移植）
+      pages-*.css           各页面特有排版
     pages/                  六个页面：首页 / 电池设置 / 性能设置 / 充放电历史 / 功耗历史 / 设置
   src-tauri/                Rust 外壳：service_request（管道）、start_service（SCM）、pipe_name
   scripts/                  代码约定校验：Fluent token/图标名、示例数据与原生调用的边界
 ```
+
+## 视觉规格从哪来
+
+界面按 `docs/home-ui-design-spec.md` 实现——那是设计稿（`battery-console-winui.html`）的逐项拆解，
+每个颜色、尺寸、曲线公式都标了原稿行号。样式分两层，别混：
+
+| 层 | 谁负责 | 用什么 |
+|---|---|---|
+| 控件（按钮、开关、滑块、下拉） | Fluent UI v9 | `makeStyles` + `tokens.*`，跟随 Fluent 主题 |
+| 卡片与图形（母线、电池、温度色阶、曲线） | 本项目 | `design.css` 的 `hc-*` 类 + `tokens.css` 的 CSS 变量 |
+
+为什么图形层不用 Fluent token：设计稿的图形细节（135° 斜纹、母线虚线动画、六段温度色阶、
+卡片 7px 圆角）用语义 token 表达不出来，逐值照搬 CSS 比重新映射更不容易走样。
+主题切换只写 `<html data-theme>`（`app/theme.js`），两套变量各自生效。
+
 
 ## 运行
 
@@ -70,6 +104,11 @@ npm run verify       # 两条代码约定校验，CI 里必须通过（见下）
 
 `npm run dev` 是日常开发的主力：**不需要服务、不需要 Windows 也能把六个页面全部看一遍**，
 因为数据链路会自动走 `data/mock`。真机联调时用 `npm run tauri dev`。
+
+改界面时的自查办法（不用手工点导航）：把 `scripts/shot-page.html` 复制进 `dist/`，用
+`npm run preview` 起服务，然后无头浏览器打开 `/shot.html?page=battery&theme=light`——
+它会先把"当前页面 + 主题"写进 localStorage，再 iframe 打开面板本体，于是任意页面、任意主题
+都能一次截到图。
 
 ## 数据是怎么流动的
 

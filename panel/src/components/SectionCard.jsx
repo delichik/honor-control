@@ -1,51 +1,48 @@
-import { Card, Text, makeStyles, tokens } from '@fluentui/react-components'
+import { Icon } from './Icon.jsx'
 
-const useStyles = makeStyles({
-  card: {
-    padding: '16px 18px',
-    display: 'flex',
-    flexDirection: 'column',
-    gap: '14px',
-    backgroundColor: tokens.colorNeutralBackground1,
-    border: `1px solid ${tokens.colorNeutralStroke2}`,
-    borderRadius: '10px',
-    boxShadow: tokens.shadow2,
-  },
-  header: {
-    display: 'flex',
-    alignItems: 'center',
-    justifyContent: 'space-between',
-    gap: '12px',
-    flexWrap: 'wrap',
-  },
-  titleGroup: {
-    display: 'flex',
-    alignItems: 'baseline',
-    gap: '10px',
-    flexWrap: 'wrap',
-  },
-  actions: {
-    display: 'flex',
-    alignItems: 'center',
-    gap: '8px',
-  },
-})
+/**
+ * 卡片外壳：设计稿里的 `.card`。
+ *
+ * 规格照抄设计稿：7px 圆角、1px 卡片描边、16px 内边距、子项间距 14px，
+ * 标题行左边是 16×16 强调色图标 + 14px/600 标题，右边是 12px 次要文字附注与操作区。
+ *
+ * `subtitle` 是旧调用点的写法，等价于设计稿放在右上角的 `note`（保留它，
+ * 这样还没重做的页面不用跟着改）。
+ */
+export function SectionCard({
+  title,
+  subtitle,
+  note,
+  icon,
+  actions,
+  children,
+  className,
+  span,
+  style,
+  rootRef,
+}) {
+  const classes = ['hc-card']
+  if (span) classes.push(`hc-sp${span}`)
+  if (className) classes.push(className)
+  const noteText = note ?? subtitle
 
-/** 统一的卡片外壳：标题、副标题、右侧操作区。全站卡片的间距与圆角由这里决定。 */
-export function SectionCard({ title, subtitle, actions, children, className }) {
-  const styles = useStyles()
   return (
-    <Card className={[styles.card, className].filter(Boolean).join(' ')}>
-      {(title || actions) && (
-        <div className={styles.header}>
-          <div className={styles.titleGroup}>
-            {title ? <Text weight="semibold" size={400}>{title}</Text> : null}
-            {subtitle ? <Text size={200} style={{ color: tokens.colorNeutralForeground3 }}>{subtitle}</Text> : null}
+    <section className={classes.join(' ')} style={style} ref={rootRef}>
+      {(title || noteText || actions) && (
+        <div className="hc-card-head">
+          <div className="hc-card-title">
+            {icon ? <Icon name={icon} /> : null}
+            {title}
           </div>
-          {actions ? <div className={styles.actions}>{actions}</div> : null}
+          {(noteText || actions) && (
+            <div className="hc-card-head-right">
+              {noteText ? <span className="hc-card-note">{noteText}</span> : null}
+              {actions}
+            </div>
+          )}
         </div>
       )}
       {children}
-    </Card>
+    </section>
   )
 }

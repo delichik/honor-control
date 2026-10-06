@@ -1,9 +1,28 @@
 <!doctype html>
-<html lang="zh-CN">
+<html lang="zh-CN" data-theme="dark">
   <head>
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <title>Honor Control</title>
+    <script>
+      // 主题属性必须在首帧之前写好：设计 token 全挂在 :root[data-theme=…] 上，
+      // 等 React 挂载后再写，第一帧会因为变量未定义而闪一下（描边退化成 currentColor）。
+      // 读取的是 zustand persist 的同一份 localStorage 数据。
+      ;(function () {
+        try {
+          var raw = localStorage.getItem('honor-control-panel')
+          var mode = raw ? (JSON.parse(raw).state || {}).themeMode : 'system'
+          var dark =
+            mode === 'dark' ||
+            ((mode === 'system' || !mode) &&
+              window.matchMedia &&
+              window.matchMedia('(prefers-color-scheme: dark)').matches)
+          document.documentElement.dataset.theme = dark ? 'dark' : 'light'
+        } catch (error) {
+          document.documentElement.dataset.theme = 'light'
+        }
+      })()
+    </script>
   </head>
   <body>
     <div id="root"></div>

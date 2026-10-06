@@ -1,46 +1,36 @@
 import { useEffect, useState } from 'react'
-import {
-  Button,
-  MessageBar,
-  MessageBarBody,
-  Radio,
-  RadioGroup,
-  Slider,
-  Text,
-  makeStyles,
-  tokens,
-} from '@fluentui/react-components'
+import { InfoBar } from '../components/InfoBar.jsx'
 import { SectionCard } from '../components/SectionCard.jsx'
 import { FanCurve } from '../components/FanCurve.jsx'
 import { MockBadge } from '../components/MockBadge.jsx'
 import { StatusBanner } from '../components/StatusBanner.jsx'
+import { RadioCard, SelectorBar, SettingRow, Slider } from '../components/Controls.jsx'
 import { PERFORMANCE_MODES } from '../data/contract.js'
 import { useServiceSnapshot, useSetPerformanceMode, useTelemetry } from '../data/queries.js'
 import { useAppStore } from '../app/store.js'
 import { exampleModeProfiles } from '../data/modeProfiles.js'
+import { EXAMPLE_FAN_CURVE } from '../data/fanCurve.js'
 
-const useStyles = makeStyles({
-  cards: { display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(240px, 1fr))', gap: '12px' },
-  card: {
-    display: 'flex',
-    alignItems: 'flex-start',
-    gap: '12px',
-    padding: '14px',
-    borderRadius: '10px',
-    border: `1px solid ${tokens.colorNeutralStroke3}`,
-    backgroundColor: tokens.colorNeutralBackground2,
-    cursor: 'pointer',
-  },
-  cardActive: {
-    border: `2px solid ${tokens.colorBrandStroke1}`,
-    padding: '13px',
-  },
-  metrics: { display: 'flex', gap: '16px', flexWrap: 'wrap', marginTop: '6px' },
-  sliders: { display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(240px, 1fr))', gap: '18px' },
-})
+/** 设计稿里的模式名比契约里的短，图标同首页的分段控件。 */
+const MODE_CARDS = {
+  1: { label: '智能', icon: 'sparkle' },
+  2: { label: '高性能', icon: 'bolt-filled' },
+}
+
+/** 风扇策略的分段控件：自动（跟性能模式）/ 最大 / 自定义（示例控制点）。 */
+const FAN_MODES = [
+  { id: 'auto', label: '自动', icon: 'sparkle' },
+  { id: 'max', label: '最大', icon: 'bolt-filled' },
+  { id: 'custom', label: '自定义', icon: 'sliders' },
+]
+
+const watts = (value) => `${value} W`
 
 /**
  * 性能设置。
+ *
+ * 版式照设计稿：左边 sp5 的「性能模式」单选卡，右边 sp7 的「功耗限制」设置行，
+ * 下面整宽 sp12 的「风扇曲线」（头部是策略分段控件）。
  *
  * 性能模式（智能/高能）是真正能写的：服务发 0x0C07，并在写前复核 AC 供电、电量 ≥ 20%、
  * 目标电源方案是否存在，写后回读 0x0E04 与电源方案。
@@ -50,114 +40,151 @@ const useStyles = makeStyles({
  * 因此这里把它们渲染成只读展示并标注"示例"，不做成假的可写控件。
  */
 export function PerformanceSettingsPage() {
-  const styles = useStyles()
-  const { telemetry, mockFields, fullMock, serviceReachable, error, isLoading } =
-    useTelemetry()
+  const { telemetry, fullMock, serviceReachable, error, isLoading } = useTelemetry()
   const { snapshot } = useServiceSnapshot()
   const setPerformanceMode = useSetPerformanceMode()
   const forceMock = useAppStore((state) => state.forceMock)
 
   const actualMode = snapshot?.Actual?.PerformanceMode ?? telemetry.PerformanceMode ?? 1
   const [mode, setMode] = useState(actualMode)
+  const [fanMode, setFanMode] = useState('auto')
 
   useEffect(() => {
     if (!setPerformanceMode.isPending) setMode(actualMode)
   }, [actualMode, setPerformanceMode.isPending])
 
   const profile = exampleModeProfiles(mode)
+  const modeLabel = (value) => MODE_CARDS[value]?.label ?? PERFORMANCE_MODES.find((item) => item.id === value)?.label ?? '未知'
+
+  // 曲线只做预览：自动策略跟着当前模式走，最大是满转，自定义用示例控制点。
+  const policy =
+    fanMode === 'max'
+      ? { kind: 'max' }
+      : fanMode === 'custom'
+        ? { kind: 'custom', points: EXAMPLE_FAN_CURVE }
+        : { kind: 'auto', mode }
 
   return (
     <>
-      <StatusBanner
-        serviceReachable={serviceReachable}
-        error={error}
-        snapshot={snapshot}
-        loading={isLoading}
-        fullMock={fullMock}
-        forceMock={forceMock}
-      />
+      <div className="hc-sp12">
+        <StatusBanner
+          serviceReachable={serviceReachable}
+          error={error}
+          snapshot={snapshot}
+          loading={isLoading}
+          fullMock={fullMock}
+          forceMock={forceMock}
+        />
+      </div>
 
-      <SectionCard title="性能模式" subtitle={`当前生效：${PERFORMANCE_MODES.find((item) => item.id === actualMode)?.label ?? '未知'}`}>
-        <RadioGroup value={String(mode)} onChange={(_, data) => setMode(Number(data.value))}>
-          <div className={styles.cards}>
-            {PERFORMANCE_MODES.map((item) => (
-              <label
+      <SectionCard
+        span={5}
+        icon="gauge"
+        title="性能模式"
+        note={`当前生效：${modeLabel(actualMode)}`}
+        actions={
+          <MockBadge
+            reason="每个模式的功耗墙、整机功耗与噪声来自机型档案示例表（data/modeProfiles.js），服务端尚未返回机型参数。"
+            reference="可行性文档 10.7（机型档案）"
+          />
+        }
+      >
+        <div className="hc-radio-cards">
+          {PERFORMANCE_MODES.map((item) => {
+            const card = MODE_CARDS[item.id] ?? { label: item.label, icon: 'gauge' }
+            const itemProfile = exampleModeProfiles(item.id)
+            return (
+              <RadioCard
                 key={item.id}
-                className={[styles.card, mode === item.id ? styles.cardActive : null].filter(Boolean).join(' ')}
-              >
-                <Radio value={String(item.id)} />
-                <div>
-                  <Text size={400} weight="semibold">{item.label}</Text>
-                  <br />
-                  <Text size={200} style={{ color: tokens.colorNeutralForeground3 }}>{item.hint}</Text>
-                  <div className={styles.metrics}>
-                    <Text size={200}>功耗墙 {exampleModeProfiles(item.id).pl1W} W</Text>
-                    <Text size={200}>整机 {exampleModeProfiles(item.id).tdpW} W</Text>
-                    <Text size={200}>风扇 {exampleModeProfiles(item.id).noiseDb} dB</Text>
-                  </div>
-                </div>
-              </label>
-            ))}
-          </div>
-        </RadioGroup>
+                selected={mode === item.id}
+                onSelect={() => setMode(item.id)}
+                title={card.label}
+                icon={card.icon}
+                metrics={
+                  <>
+                    <b>{itemProfile.pl1W} W</b> CPU · <b>{itemProfile.tdpW} W</b> 整机 ·{' '}
+                    <b>{itemProfile.noiseDb} dB</b>
+                  </>
+                }
+              />
+            )
+          })}
+        </div>
 
-        <div style={{ display: 'flex', gap: 10, alignItems: 'center' }}>
-          <Button
-            appearance="primary"
+        <div className="hc-card-actions">
+          <button
+            type="button"
+            className="hc-btn hc-btn--accent"
             disabled={mode === actualMode || setPerformanceMode.isPending}
             onClick={() => setPerformanceMode.mutate({ PerformanceMode: mode })}
           >
             {setPerformanceMode.isPending ? '正在切换…' : '切换性能模式'}
-          </Button>
-          <Text size={200} style={{ color: tokens.colorNeutralForeground3 }}>
-            切换会同时调整 Windows 电源方案；失败时服务会尝试回滚。
-          </Text>
+          </button>
         </div>
 
         {setPerformanceMode.isError ? (
-          <MessageBar intent="error">
-            <MessageBarBody>{setPerformanceMode.error.message}</MessageBarBody>
-          </MessageBar>
+          <InfoBar tone="critical" icon="warn" title="写入失败">
+            {setPerformanceMode.error.message}
+          </InfoBar>
         ) : null}
         {setPerformanceMode.isSuccess && mode === actualMode ? (
-          <MessageBar intent="success">
-            <MessageBarBody>已切换到 {PERFORMANCE_MODES.find((item) => item.id === actualMode)?.label}，并回读确认。</MessageBarBody>
-          </MessageBar>
+          <InfoBar tone="success" icon="check-circle" title="已生效">
+            已切换到 {modeLabel(actualMode)}，并回读确认。
+          </InfoBar>
         ) : null}
       </SectionCard>
 
       <SectionCard
+        span={7}
+        icon="sliders"
         title="功耗限制"
-        subtitle="当前只读：写路径尚未定位，先按示例值展示"
-        actions={<MockBadge field="Sensors" />}
+        note="随性能模式自动设定"
+        actions={
+          <MockBadge
+            reason="功耗墙来自机型档案示例表（data/modeProfiles.js）；服务的 GVNT/WVST 写入路径尚未定位，因此这里只读。"
+            reference="可行性文档 5.1（功耗限制写路径）"
+          />
+        }
       >
-        <div className={styles.sliders}>
-          <div>
-            <Text size={200}>CPU 持续功耗（{profile.pl1W} W）</Text>
-            <Slider min={15} max={80} step={5} value={profile.pl1W} disabled />
-          </div>
-          <div>
-            <Text size={200}>CPU 峰值功耗（{profile.pl2W} W）</Text>
-            <Slider min={20} max={120} step={5} value={profile.pl2W} disabled />
-          </div>
-          <div>
-            <Text size={200}>整机功耗上限（{profile.tdpW} W）</Text>
-            <Slider min={40} max={180} step={10} value={profile.tdpW} disabled />
-          </div>
+        <div className="hc-settings">
+          <SettingRow title="CPU 持续功耗">
+            <div className="hc-setting-ctrl">
+              <Slider min={15} max={80} step={5} value={profile.pl1W} disabled format={watts} />
+            </div>
+          </SettingRow>
+
+          <SettingRow title="CPU 峰值功耗">
+            <div className="hc-setting-ctrl">
+              <Slider min={20} max={120} step={5} value={profile.pl2W} disabled format={watts} />
+            </div>
+          </SettingRow>
+
+          <SettingRow title="整机功耗上限">
+            <div className="hc-setting-ctrl">
+              <Slider min={40} max={180} step={10} value={profile.tdpW} disabled format={watts} />
+            </div>
+          </SettingRow>
         </div>
-        <Text size={200} style={{ color: tokens.colorNeutralForeground3 }}>
-          这些数值来自机型档案的示例表（data/modeProfiles.js）。服务的 GVNT/WVST 读取可能可行，
-          写入路径尚未定位（可行性文档 5.1），确认后再把滑块改成可写。
-        </Text>
       </SectionCard>
 
-      <SectionCard title="风扇曲线" subtitle="示例策略：横轴温度、纵轴转速" actions={<MockBadge field="Fans" />}>
-        <FanCurve sensors={telemetry.Sensors} fans={telemetry.Fans} performanceMode={mode} />
-        <Text size={200} style={{ color: tokens.colorNeutralForeground3 }}>
-          曲线的自定义编辑需要荣耀内核驱动通道，当前不可写；这里展示的是内置示例策略，
-          用于说明"性能模式 → 散热策略"的关系。传感器实际温度与转速见首页的性能与散热卡。
-          {mockFields.includes('Fans') ? '（风扇转速当前为示例数据）' : ''}
-        </Text>
+      <SectionCard
+        span={12}
+        icon="fan"
+        title="风扇曲线"
+        actions={
+          <>
+            <MockBadge field="FanCurve" />
+            <SelectorBar
+              items={FAN_MODES}
+              value={fanMode}
+              onChange={setFanMode}
+              ariaLabel="风扇策略"
+            />
+          </>
+        }
+      >
+        <FanCurve sensors={[]} fans={[{ Id: 'preview', Rpm: 3000, MaxRpm: 6000 }]} policy={policy} />
+        <div className="hc-edit-hint">曲线是示例策略：服务暂无风扇写通道，这里只预览三种策略的形态。</div>
       </SectionCard>
     </>
   )

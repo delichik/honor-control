@@ -1,0 +1,45 @@
+<!doctype html>
+<!--
+  本地 UI 核对用的截图入口（不是应用的一部分）。
+
+  为什么需要它：面板的"当前页面 / 主题"存在 localStorage 里，无头浏览器一次性截不到别的页面。
+  这个页面先写好 localStorage，再用 iframe 打开面板本体，于是
+  `/shot.html?page=battery&theme=light` 就能直接截到任意页面。
+
+  用法（构建产物里需要有一份副本）：
+    npm run build
+    copy scripts\shot-page.html dist\shot.html
+    npm run preview
+    # 然后 http://localhost:4173/shot.html?page=powerHistory&theme=dark
+-->
+<html lang="zh-CN">
+  <head>
+    <meta charset="UTF-8" />
+    <title>panel shot</title>
+    <style>
+      html,
+      body {
+        margin: 0;
+        background: #111;
+      }
+      iframe {
+        width: 1400px;
+        height: 900px;
+        border: 0;
+        display: block;
+      }
+    </style>
+    <script>
+      const params = new URLSearchParams(location.search)
+      const page = params.get('page') || 'home'
+      const theme = params.get('theme') || 'dark'
+      localStorage.setItem(
+        'honor-control-panel',
+        JSON.stringify({ state: { page, themeMode: theme }, version: 0 }),
+      )
+    </script>
+  </head>
+  <body>
+    <iframe src="/"></iframe>
+  </body>
+</html>
