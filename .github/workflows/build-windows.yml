@@ -7,6 +7,7 @@ on:
       - 'src/HonorControl/**'
       - 'src/HonorControl.Contracts/**'
       - 'src/HonorControl.Service/**'
+      - 'src/HonorControl.Tray/**'
       - 'panel/**'
       - 'installer/**'
       - 'HonorControl.sln'
