@@ -14,7 +14,7 @@
 | 视图 | React 19 | |
 | 组件库 | **Fluent UI v9**（`@fluentui/react-components`） | 目标观感是 WinUI 3 / Windows 11：Fluent 提供同一套语义色板、控件与主题，比手写 CSS 更接近原生也不容易走样 |
 | 图标 | `@fluentui/react-icons`（Fluent System Icons） | 与 WinUI 的 Segoe Fluent 图标同源 |
-| 图表 | Recharts 3 | 历史曲线与风扇曲线都是折线/面积图，React 友好、可按 Fluent token 上色 |
+| 图表 | Recharts 3 | 历史曲线可按 Fluent token 上色 |
 | 服务数据 | TanStack Query 5 | 需要轮询、缓存、失效与错误状态；服务端快照很便宜（只读内存缓存） |
 | UI 状态 | Zustand 5（带 persist） | 只放页面、主题、示例数据开关这类纯 UI 状态 |
 | 构建 | Vite 8 | Tauri 官方模板同款 |
@@ -26,19 +26,18 @@ panel/
   src/
     App.jsx                 外层：左侧导航 + 页面头 + 内容区
     main.jsx                Provider（Fluent 主题 + Query Client）
-    app/                    纯 UI 状态：store / theme / useNow / useRecentSamples / useElementWidth
+    app/                    纯 UI 状态：store / theme / useNow / useElementWidth
     data/
       contract.js           与服务的通信契约（字段、命令、协议版本、口径常量）
       transport.js          唯一出口：invoke → Rust → 命名管道
       queries.js            所有轮询与写命令（含降级判断）
       derive.js             派生口径：充放电判定、系统负载、Wh 积分、格式化
-      fanCurve.js           示例风扇策略曲线（服务暂无通道）
       modeProfiles.js       机型档案示例（功耗墙 / 噪声 / 额定功率）
-      mock/                 ← 唯一允许放假数据的地方
+      mock/                 ← 浏览器预览与显式演示模式
         sources.js          缺哪些指标、为什么缺、依据在哪
         generator.js        时间纯函数的物理模型（自洽的示例数据）
         transport.js        浏览器/无服务时模拟服务端响应
-        index.js            示例数据注入点（applyMockPolicy）
+        index.js            全量演示数据入口（applyMockPolicy）
     components/
       SectionCard.jsx       卡片外壳（设计稿的 .card）
       Icon.jsx              内联 SVG 图标（设计稿的图标库）
@@ -46,9 +45,8 @@ panel/
       BatteryGauge.jsx      电池本体（电量 + 充电窗口 + 可拖动阈值）
       PowerBus.jsx          供电母线（按像素重算的线路 + 线路上的功率标签）
       PowerCard.jsx         电源卡：节点 + 母线 + 电池 + 读数
-      ThermalCard.jsx       性能与散热卡：传感器 + 风扇曲线 + 风扇
-      FanCurve.jsx / FanRotor.jsx / SensorBar.jsx / ModeBar.jsx
-      PowerChart.jsx        首页 60 秒功率曲线
+      ThermalCard.jsx       性能与散热卡：实测传感器 + 风扇 RPM
+      FanRotor.jsx / SensorBar.jsx / ModeBar.jsx
       HistoryChart.jsx      历史曲线（多序列、可调高度）
       InfoBar.jsx           提示条（服务状态与写入结果共用）
       StatusBanner.jsx      服务状态横幅（组合 InfoBar）
@@ -118,38 +116,28 @@ npm run verify       # 两条代码约定校验，CI 里必须通过（见下）
                             data/mock/transport.js（假服务，返回同样形状的响应）
 ```
 
-组件**永远不直接取数**，也不判断"服务在不在"。降级判断只在 `queries.js` 里做一次，
-示例数据注入只在 `data/mock/index.js` 里做一次。
+组件**永远不直接取数**，也不判断"服务在不在"。服务状态只在 `queries.js` 处理；完整示例数据只用于浏览器预览或显式演示模式。原生面板不会把缺失读数替换成模拟值。
 
-## 缺数据的指标：放示例数据 + 写明原因
+## 缺数据的指标
 
-服务当前有一部分指标拿不到（可行性分析第 5 节有完整矩阵）。这些位置**先用示例数据把界面填满**，
-规则是：
+服务暂时没有读到的指标保持未知；示例数据只用于浏览器预览与显式演示模式。数据来源面板会标出缺失原因。
 
-1. 假数据只能来自 `data/mock/`，尤其是 `sources.js`；
-2. 每个条目必须写清 `reason`（为什么拿不到）和 `reference`（结论出处）；
-3. 凡是显示假数据的地方都带一个"示例"角标（`MockBadge`），悬停可以看到原因；
-4. 设置页的"数据来源"面板列出所有字段是"服务"还是"示例"；
-5. 服务接上某个指标后，**删掉 `sources.js` 里对应的条目即可**，组件不需要改。
-
-当前仍用示例数据占位的指标与第三方采集状态：
+当前采集状态：
 
 | 指标 | 状态 | 原因（摘要） |
 |---|---|---|
-| 电池温度 | 仍待真机确认 | 服务侧检查硬件监测库是否提供；Windows BatteryTemperature WMI 类没有实例 |
-| 适配器功率 | 仍待接入 | `0x0902` 提供电压，`0x10902` / `0x110902` 电流读取尚未接入服务 |
-| 电池健康度 / 设计容量 | 已接入，待真机确认 | 服务侧硬件监测库读取 Windows 电池设备信息；健康度用满充容量 / 设计容量计算 |
-| CPU / GPU / SSD 温度 | 已接入，待真机确认 | 服务通过 LibreHardwareMonitor 采集设备实际暴露的温度传感器 |
-| 风扇转速 | 已接入，待真机确认 | 服务通过 LibreHardwareMonitor 采集当前 RPM；最高转速未知时不填估值 |
-| 风扇曲线、功耗限制（PL1/PL2/TDP） | 不可写 | 写路径未定位（PL）/ 需要荣耀内核驱动（风扇） |
+| 电池温度 | 服务已接入，待真机确认 | LibreHardwareMonitor 读取；目标机可能未暴露传感器 |
+| 风扇转速 | 服务已接入，待真机确认 | LibreHardwareMonitor 读取；目标机可能未暴露 RPM |
+| 适配器功率 | 尚未接入 | `0x0902` 是电压；电流读取路径未接入服务 |
+| 电池设计容量 / 健康度 | 已接入，待真机确认 | 由硬件库或 Windows 电池接口提供 |
+| CPU / GPU / SSD 温度 | 服务已接入，待真机确认 | 读取 LibreHardwareMonitor 实际暴露的传感器 |
+| 功耗限制（PL1/PL2/TDP） | 不可写 | 服务写入路径尚未定位 |
 
-**已经接入真实读取的**：电量、插电状态、**电池功率（带符号）**、满充容量、循环次数，以及服务侧的 LibreHardwareMonitor 传感器采样——
-这些由服务端 `BatteryService` + 1 Hz `TelemetrySampler` 提供，面板直接显示真实值。
+已经接入的真实读数包括电量、供电状态、电池功率、满充容量、循环次数，以及硬件库实际返回的温度与风扇读数。适配器功率仍未接通。
 
 LibreHardwareMonitor 由 `HonorControl.Service` 在 SYSTEM 服务进程中打开，控制面板仍以普通用户权限运行。硬件/驱动没有暴露的值保持为空；不会因此提升控制面板权限。
 
-示例数据不是随机数：`generator.js` 是一个小的物理模型（充电功率 → 电池温度 → 核心温度 → 风扇转速，
-适配器功率 = 系统负载 + 充入电池的功率），并且是**时间的纯函数**，所以实时值与历史曲线自洽。
+浏览器预览的示例数据来自 `generator.js`，只用于演示界面，不会出现在原生面板的服务读数中。
 
 ## 与托盘、服务的关系
 

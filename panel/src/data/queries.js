@@ -15,7 +15,7 @@ import { useNow } from '../app/useNow.js'
  * 服务数据统一走这里。
  *
  * 面板与服务按同一份 v4 契约发布：版本不一致时直接报错让用户重装，不做降级兼容。
- * 唯一"降级"的是**服务拿不到的指标**——那些由 data/mock 补示例数据（见 5.1 矩阵）。
+ * 原生面板只展示服务读数；没有读数就保持 null/空数组。示例数据只用于浏览器预览或显式演示模式。
  *
  * 轮询频率按"服务端很便宜"设计：快照与遥测都只读服务端内存缓存，不打 WMI（可行性文档 5.3）。
  */
@@ -36,18 +36,33 @@ function unwrap(response) {
  * 服务快照查询。
  * 同一 key 在多处调用只会发一次请求，TanStack Query 会自动去重。
  */
-function useSnapshotQuery() {
+const selectServiceAvailable = () => true
+const selectPerformanceMode = (snapshot) => snapshot?.Actual?.PerformanceMode ?? null
+const selectHomeStatusSnapshot = (snapshot) => {
+  const actual = snapshot?.Actual
+  return {
+    Actual: {
+      PcManagerOpen: actual?.PcManagerOpen ?? false,
+      ChargeError: actual?.ChargeError ?? null,
+      PerformanceError: actual?.PerformanceError ?? null,
+      ServiceError: actual?.ServiceError ?? null,
+    },
+  }
+}
+
+function useSnapshotQuery(select) {
   return useQuery({
     queryKey: ['snapshot'],
     queryFn: async () => unwrap(await serviceRequest(COMMANDS.GetState)).Snapshot,
     refetchInterval: 5000,
     retry: 0,
+    select,
   })
 }
 
 /** 服务健康状况：连接是否可用，以及用于诊断展示的协议版本。 */
 export function useServiceHealth() {
-  const query = useSnapshotQuery()
+  const query = useSnapshotQuery(selectServiceAvailable)
 
   return {
     serviceReachable: query.isSuccess,
@@ -57,7 +72,7 @@ export function useServiceHealth() {
   }
 }
 
-/** 快照本身（阈值、性能模式、电脑管家状态、托盘策略）。 */
+/** 快照本身（阈值、性能模式与电脑管家状态）。 */
 export function useServiceSnapshot() {
   const query = useSnapshotQuery()
   return {
@@ -68,6 +83,18 @@ export function useServiceSnapshot() {
   }
 }
 
+/** 首页只订阅状态横幅用到的字段，快照轮询不会带着整页一起重渲染。 */
+export function useHomeStatusSnapshot() {
+  const query = useSnapshotQuery(selectHomeStatusSnapshot)
+  return query.data ?? null
+}
+
+/** 首页只订阅性能模式；其余快照字段更新时不重渲染性能与散热卡。 */
+export function useActualPerformanceMode() {
+  const query = useSnapshotQuery(selectPerformanceMode)
+  return query.data ?? null
+}
+
 /**
  * 实时遥测（1 秒）。
  *
@@ -75,8 +102,9 @@ export function useServiceSnapshot() {
  */
 export function useTelemetry() {
   const forceMock = useAppStore((state) => state.forceMock)
-  const now = useNow(1000)
   const health = useServiceHealth()
+  const nativeRuntime = isTauriRuntime()
+  const now = useNow(1000, forceMock || !nativeRuntime)
 
   const query = useQuery({
     queryKey: ['telemetry'],
@@ -88,8 +116,8 @@ export function useTelemetry() {
   })
 
   const payload = query.data ?? null
-  // 原生面板连接服务前后都不显示模拟电量；浏览器预览和用户显式开启的示例模式才使用模拟数据。
-  const demoMode = forceMock || (!isTauriRuntime() && !health.isLoading && !health.serviceReachable)
+  // 原生面板只显示服务读数；浏览器预览和用户显式开启的示例模式才使用模拟数据。
+  const demoMode = forceMock || (!nativeRuntime && !health.isLoading && !health.serviceReachable)
 
   const result = useMemo(
     () => {
@@ -99,7 +127,8 @@ export function useTelemetry() {
       if (!query.isSuccess || !payload) {
         return { telemetry: emptyTelemetry(), fullMock: false, mockFields: [] }
       }
-      return applyMockPolicy(payload, { forceMock: false, serviceReachable: true, tMs: now })
+      if (nativeRuntime) return { telemetry: payload, fullMock: false, mockFields: [] }
+      return applyMockPolicy(payload, { forceMock: true, serviceReachable: false, tMs: now })
     },
     [payload, demoMode, query.isSuccess, now],
   )
@@ -144,7 +173,7 @@ export function useHistory(metricKey, range) {
         await serviceRequest(COMMANDS.GetHistory, null, { Metric: metric, Range: range.id, Points: range.points }),
       ).History,
     enabled: health.serviceReachable,
-    refetchInterval: range.id === '1m' ? 1000 : 60 * 1000,
+    refetchInterval: 60 * 1000,
     retry: 0,
   })
 

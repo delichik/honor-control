@@ -78,7 +78,7 @@ public sealed record Telemetry(
 /// <summary>
 /// 服务自己探测出来的能力。面板用它决定"哪些行可以显示真实读数、哪些只能显示示例/隐藏"。
 /// Supports 的键使用稳定的英文标识（BatteryTemperature / BatteryPower / AdapterPower /
-/// Sensors / Fans / PowerLimits / FanCurve），MissingReason 给出人话原因。
+/// Sensors / Fans / PowerLimits），MissingReason 给出人话原因。
 /// </summary>
 public sealed record Capabilities(
     double? AdapterRatedW,

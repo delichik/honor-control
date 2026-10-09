@@ -1,16 +1,12 @@
 import { SectionCard } from '../components/SectionCard.jsx'
 import { PowerCard } from '../components/PowerCard.jsx'
 import { ThermalCard } from '../components/ThermalCard.jsx'
-import { PowerChart } from '../components/PowerChart.jsx'
 import { StatusBanner } from '../components/StatusBanner.jsx'
-import { MockBadge } from '../components/MockBadge.jsx'
-import { useServiceSnapshot, useTelemetry } from '../data/queries.js'
+import { useActualPerformanceMode, useHomeStatusSnapshot, useTelemetry } from '../data/queries.js'
 import { useAppStore } from '../app/store.js'
-import { useHistory } from '../data/queries.js'
-import { RECENT_HISTORY_RANGE } from '../data/contract.js'
 
 /**
- * 首页：电源卡 + 性能与散热卡 + 最近一分钟的电池功率。
+ * 首页：电源卡 + 性能与散热卡。
  *
  * 页面本身不做任何取数逻辑，数据全部来自 queries.js（含示例数据注入），
  * 这样"哪些是真实值、哪些是占位"只在一个地方决定（data/mock/index.js）。
@@ -20,19 +16,9 @@ import { RECENT_HISTORY_RANGE } from '../data/contract.js'
  */
 export function HomePage() {
   const { telemetry, mockFields, fullMock, serviceReachable, error, isLoading } = useTelemetry()
-  const { snapshot } = useServiceSnapshot()
+  const statusSnapshot = useHomeStatusSnapshot()
+  const actualPerformanceMode = useActualPerformanceMode()
   const forceMock = useAppStore((state) => state.forceMock)
-
-  const recentHistory = useHistory('batteryPower', RECENT_HISTORY_RANGE)
-  const recentHistoryMessage = recentHistory.isLoading
-    ? '读取中…'
-    : !recentHistory.serviceReachable
-      ? '服务未连接'
-      : recentHistory.error
-        ? '读取失败'
-          : recentHistory.hasData
-          ? `最近 ${Math.round(recentHistory.hours * 3600)} 秒`
-          : '暂无记录'
 
   return (
     <>
@@ -40,7 +26,7 @@ export function HomePage() {
         <StatusBanner
           serviceReachable={serviceReachable}
           error={error}
-          snapshot={snapshot}
+          snapshot={statusSnapshot}
           loading={isLoading}
           fullMock={fullMock}
           forceMock={forceMock}
@@ -52,18 +38,8 @@ export function HomePage() {
       <ThermalCard
         telemetry={telemetry}
         mockFields={mockFields}
-        performanceMode={snapshot?.Actual?.PerformanceMode ?? telemetry.PerformanceMode ?? null}
+        performanceMode={actualPerformanceMode ?? telemetry.PerformanceMode ?? null}
       />
-
-      <SectionCard
-        span={12}
-        icon="chart"
-        title="电池输入功率"
-        note={recentHistoryMessage}
-        actions={<MockBadge field="BatteryPowerW" />}
-      >
-        <PowerChart samples={recentHistory.samples} hours={recentHistory.hours} emptyMessage={recentHistoryMessage} />
-      </SectionCard>
     </>
   )
 }

@@ -15,6 +15,20 @@ body,
   margin: 0;
 }
 
+/* 面板是只读仪表界面，禁止选中/复制静态标签；保留输入框编辑能力。 */
+#root,
+#root * {
+  -webkit-user-select: none;
+  user-select: none;
+}
+
+#root input:not([type='range']):not([type='checkbox']):not([type='radio']),
+#root textarea,
+#root [contenteditable='true'] {
+  -webkit-user-select: text;
+  user-select: text;
+}
+
 body {
   font-family: 'Segoe UI Variable Text', 'Segoe UI', system-ui, -apple-system, 'Microsoft YaHei UI',
     sans-serif;

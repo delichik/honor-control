@@ -17,7 +17,7 @@ import { persist } from 'zustand/middleware'
 export const PAGES = [
   { id: 'home', label: '首页', subtitle: '实时监控电池、电源与性能状态', icon: 'home' },
   { id: 'battery', label: '电池设置', subtitle: '充电阈值与电池保养', icon: 'sliders', group: '控制' },
-  { id: 'performance', label: '性能设置', subtitle: '性能模式、风扇曲线与功耗上限', icon: 'gauge', group: '控制' },
+  { id: 'performance', label: '性能设置', subtitle: '性能模式与功耗限制', icon: 'gauge', group: '控制' },
   { id: 'chargeHistory', label: '充放电历史', subtitle: '电池输入功率随时间变化', icon: 'battery', group: '监控' },
   { id: 'powerHistory', label: '功耗历史', subtitle: '电源功率与系统负载随时间变化', icon: 'chart', group: '监控' },
   { id: 'about', label: '设置', subtitle: '设备与关于信息', icon: 'settings', pinned: true },

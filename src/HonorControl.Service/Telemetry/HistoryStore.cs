@@ -21,13 +21,11 @@ namespace HonorControl.Service.Telemetry;
 internal sealed class HistoryStore
 {
     private const int RetentionDays = 30;
-    private const int RecentSampleCount = 60;
     private static readonly string DefaultDirectoryPath = Path.Combine(
         Environment.GetFolderPath(Environment.SpecialFolder.CommonApplicationData), "HonorControl", "history");
 
     private readonly object sync = new();
     private readonly string directoryPath;
-    private readonly Queue<TelemetrySnapshot> recentSamples = new();
 
     public HistoryStore() : this(DefaultDirectoryPath)
     {
@@ -67,16 +65,6 @@ internal sealed class HistoryStore
         }
     }
 
-    /// <summary>保留服务最近 60 个 1 Hz 采样，供首页短时曲线查询。</summary>
-    public void RecordRecent(TelemetrySnapshot telemetry)
-    {
-        lock (sync)
-        {
-            recentSamples.Enqueue(telemetry);
-            while (recentSamples.Count > RecentSampleCount) recentSamples.Dequeue();
-        }
-    }
-
     /// <summary>
     /// 查询一个指标的等间隔序列。
     ///
@@ -85,8 +73,6 @@ internal sealed class HistoryStore
     /// </summary>
     public HistorySeries Query(HistoryQuery query)
     {
-        if (query.Range == "1m") return QueryRecent(query);
-
         (double hours, int defaultPoints) = query.Range switch
         {
             "1h" => (1, 60),
@@ -133,36 +119,6 @@ internal sealed class HistoryStore
         return new HistorySeries(query.Metric, query.Range, hours, result);
     }
 
-    private HistorySeries QueryRecent(HistoryQuery query)
-    {
-        TelemetrySnapshot[] samples;
-        lock (sync) samples = recentSamples.ToArray();
-
-        int points = query.Points > 0 ? Math.Min(query.Points, RecentSampleCount) : RecentSampleCount;
-        DateTimeOffset latest = samples.Length > 0 ? samples[^1].CheckedAt : DateTimeOffset.Now;
-        int firstInRange = Array.FindIndex(samples, sample => sample.CheckedAt >= latest.AddSeconds(-60));
-        if (firstInRange < 0) firstInRange = samples.Length;
-
-        // Drop data before the latest missing value so the graph never bridges a
-        // sampling failure with a fabricated zero or an old reading.
-        int latestGap = Array.FindLastIndex(samples, sample => GetValue(sample, query.Metric) is null);
-        int start = Math.Max(firstInRange, latestGap + 1);
-        List<(DateTimeOffset Time, double Value)> recorded = samples[start..]
-            .Select(sample => (sample.CheckedAt, Value: GetValue(sample, query.Metric)))
-            .Where(item => item.Value.HasValue)
-            .Select(item => (item.CheckedAt, item.Value!.Value))
-            .ToList();
-
-        if (recorded.Count == 0)
-            return new HistorySeries(query.Metric, query.Range, 1.0 / 60, Array.Empty<double?>());
-
-        double hours = recorded.Count > 1
-            ? Math.Max(1.0 / 3600, (recorded[^1].Time - recorded[0].Time).TotalHours)
-            : 1.0 / 3600;
-        double[] values = recorded.TakeLast(points).Select(item => item.Value).ToArray();
-        return new HistorySeries(query.Metric, query.Range, hours, values.Select(value => (double?)value).ToArray());
-    }
-
     private List<(DateTimeOffset, double?)> ReadSamples(string metric, DateTimeOffset from, DateTimeOffset until)
     {
         List<(DateTimeOffset, double?)> samples = new();
@@ -206,14 +162,6 @@ internal sealed class HistoryStore
         samples.Sort((left, right) => left.Item1.CompareTo(right.Item1));
         return samples;
     }
-
-    private static double? GetValue(TelemetrySnapshot telemetry, string metric) => metric switch
-    {
-        "BatteryPower" => telemetry.BatteryPowerW,
-        "AdapterPower" => telemetry.AdapterPowerW,
-        "SystemLoad" => telemetry.SystemLoadW,
-        _ => null,
-    };
 
     private static double? Parse(string text) =>
         string.IsNullOrWhiteSpace(text) ? null : double.Parse(text, CultureInfo.InvariantCulture);

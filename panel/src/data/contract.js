@@ -37,9 +37,6 @@ export const HISTORY_RANGES = [
   { id: '7d', label: '7 天', hours: 168, points: 300 },
 ]
 
-/** 首页最近一分钟也从服务端内存采样环读取，面板不自行收集历史点。 */
-export const RECENT_HISTORY_RANGE = { id: '1m', label: '最近 60 秒', hours: 1 / 60, points: 60 }
-
 export const HISTORY_METRICS = {
   batteryPower: 'BatteryPower',
   adapterPower: 'AdapterPower',
@@ -77,19 +74,19 @@ export const POWER_EPSILON_W = 0.6
  * @property {string}  CheckedAt                采样时间（ISO 8601）
  * @property {boolean|null} PluggedIn           是否接入适配器
  * @property {number|null} BatteryPercent        电量百分比
- * @property {number|null} BatteryTemperatureC  电池温度：服务当前无来源 → 示例数据
+ * @property {number|null} BatteryTemperatureC  电池温度：服务从硬件监测库读取，无读数时为空
  * @property {number|null} BatteryPowerW        电池功率，带符号（正=充入，负=放出）
- * @property {number|null} AdapterPowerW        适配器输出功率：需真机验证电压×电流 → 示例数据
+ * @property {number|null} AdapterPowerW        适配器输出功率：当前服务未接入电流读取，保持为空
  * @property {number|null} SystemLoadW          系统负载功率（服务按 适配器 − 充入功率 派生）
  * @property {number|null} PerformanceMode      实际模式：1=智能 2=高能
  * @property {number|null} ChargeStartPercent   实际开始阈值
  * @property {number|null} ChargeStopPercent    实际停止阈值
- * @property {number|null} BatteryHealthPercent 健康度：待真机确认电池类 → 示例数据
- * @property {number|null} BatteryDesignCapacityWh
+ * @property {number|null} BatteryHealthPercent 健康度：没有设计/满充容量时为空
+ * @property {number|null} BatteryDesignCapacityWh 设计容量：接口未返回时为空
  * @property {number|null} BatteryFullChargeCapacityWh
  * @property {number|null} BatteryCycleCount
- * @property {SensorReading[]} Sensors          CPU/GPU/SSD 温度：暂无用户态来源 → 示例数据
- * @property {FanReading[]}    Fans             风扇转速：0x0802 语义未定 → 示例数据
+ * @property {SensorReading[]} Sensors          CPU/GPU/SSD 温度：服务从 LibreHardwareMonitor 读取，无读数时为空数组
+ * @property {FanReading[]}    Fans             风扇转速：服务从 LibreHardwareMonitor 读取，无读数时为空数组
  * @property {boolean} PcManagerOpen            荣耀电脑管家在运行（此刻服务只读）
  * @property {string|null} ChargeError
  * @property {string|null} ServiceError

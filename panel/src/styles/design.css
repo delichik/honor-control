@@ -542,9 +542,7 @@ html {
 .hc-bus--stacked .hc-battery-info { flex-direction: row; gap: 32px; padding: 0; }
 
 /* ---------- 性能与散热 ---------- */
-.hc-thermal-body { display: flex; align-items: center; gap: 30px; }
-
-.hc-sensor-list { flex: 0 0 400px; display: flex; flex-direction: column; gap: 16px; }
+.hc-sensor-list { width: min(100%, 520px); display: flex; flex-direction: column; gap: 16px; }
 
 .hc-sensor-item {
   display: grid;
@@ -606,25 +604,6 @@ html {
   font-variant-numeric: tabular-nums;
   transition: color var(--dur) var(--ease-out);
 }
-
-.hc-curve-wrap { flex: 1; min-width: 0; }
-.hc-curve { width: 100%; height: 210px; display: block; overflow: visible; }
-.hc-curve-grid line { stroke: var(--chart-grid); stroke-width: 1; }
-.hc-curve-grid text { font-size: 11px; fill: var(--text-tertiary); font-family: var(--font-text); }
-.hc-curve-area { fill: var(--accent); opacity: 0.1; }
-.hc-curve-line {
-  fill: none;
-  stroke: var(--accent);
-  stroke-width: 2.5;
-  stroke-linecap: round;
-  stroke-linejoin: round;
-  transition: d var(--dur-slow) var(--ease-out);
-}
-
-.hc-curve-mark line { stroke-width: 1.5; stroke-dasharray: 3 4; opacity: 0.75; }
-.hc-curve-mark circle { stroke: var(--card); stroke-width: 2; }
-.hc-op-halo { fill: none; stroke: var(--accent); stroke-width: 2; opacity: 0.4; }
-.hc-op-dot { fill: var(--accent); stroke: var(--card); stroke-width: 2.5; }
 
 .hc-fan-row { display: flex; flex-wrap: wrap; gap: 16px 44px; }
 .hc-fan-mini { display: flex; align-items: center; gap: 14px; }
@@ -842,9 +821,6 @@ html {
 }
 
 .hc-edit-hint { font-size: 12px; line-height: 16px; color: var(--text-tertiary); }
-.hc-handle { fill: var(--card); stroke: var(--accent); stroke-width: 2.5; transition: r var(--dur-fast) var(--ease-out); }
-.hc-curve[data-editable='true'] .hc-handle { cursor: ns-resize; }
-.hc-handle:hover { r: 9; }
 
 /* ---------- 按钮的强调 / 次级 / 纯图标变体 ---------- */
 .hc-btn--accent {

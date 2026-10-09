@@ -27,9 +27,7 @@ function telemetry() {
   return {
     ...emptyTelemetry(),
     ...simulated,
-    // 真实服务**拿不到**的字段在这里如实留空：由 data/mock/index.js 的注入点补示例值并打"示例"角标。
-    // 如果这里直接给模拟值，界面上就会出现"看起来来自服务、其实是编的"读数，
-    // 而角标只在字段为空时才会亮——预览环境与真机行为必须一致。
+    // 假服务保留空字段；预览数据统一由 data/mock/index.js 标记为全量示例。
     BatteryTemperatureC: null,
     AdapterPowerW: null,
     BatteryHealthPercent: null,
@@ -99,13 +97,11 @@ export async function mockRequest(command, desired = null, history = null) {
             Sensors: false,
             Fans: false,
             PowerLimits: false,
-            FanCurve: false,
           },
           MissingReason: {
             BatteryTemperature: 'root\\wmi 电池类待真机确认',
             Sensors: 'CPU/GPU/SSD 温度暂无用户态来源',
             Fans: '0x0802 语义未确认',
-            FanCurve: '需荣耀内核驱动，无用户态通道',
           },
         },
       }

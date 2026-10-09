@@ -1,20 +1,18 @@
-import * as gen from './generator.js'
-
 /**
- * 服务当前拿不到的指标清单 —— 这些字段在前端先用示例数据占位。
+ * 服务当前拿不到或尚未验证的指标清单，用于开发期数据来源说明。
  *
- * 这是**唯一**允许造假数据的地方。规则：
+ * 原生面板不会用这些条目合成硬件读数；缺失值保持为空。完整模拟只在浏览器预览或用户主动开启时使用。
+ * 条目规则：
  * 1. 每个条目都必须写清 `reason`（为什么拿不到）和 `reference`（实测结论的出处）；
- * 2. 取值一律来自 generator.js，不要在组件里临时凑数字；
- * 3. 服务把这些指标接上以后，**删除对应条目**即可——组件不需要改，因为组件只认 Telemetry 的字段。
+ * 2. 服务接上指标后更新来源状态，组件继续按 Telemetry 字段展示。
  *
  * serviceSupport 的含义：
  *   'yes'     服务已经能提供（只在"全量示例数据"模式下才会被模拟）
  *   'unknown' 数据源未验证，需要真机确认
  *   'no'      已在真机上确认没有用户态来源
  *
- * Windows 自带 WMI 没有实例不代表设备没有数据源。服务改用 LibreHardwareMonitor
- * 读取硬件传感器和 Windows 电池设备接口；可用字段仍需在服务运行时确认。
+ * Windows 自带 WMI 没有实例不代表设备没有数据源。服务用 LibreHardwareMonitor
+ * 读取硬件传感器和 Windows 电池设备接口；目标机仍需确认驱动是否提供读数。
  */
 export const MOCK_SOURCES = [
   {
@@ -23,15 +21,13 @@ export const MOCK_SOURCES = [
     serviceSupport: 'unknown',
     reason: '服务通过 LibreHardwareMonitor 读取电池温度；该库或机型驱动未必提供此字段，仍需真机确认。',
     reference: 'LibreHardwareMonitor 0.9.6；运行时能力探测',
-    fill: (t) => gen.batteryTemperatureCAt(t),
   },
   {
     key: 'AdapterPowerW',
     label: '适配器功率',
     serviceSupport: 'unknown',
-    reason: '荣耀协议已定位到 0x0902 电压与 0x10902/0x110902 电流的组合；服务侧电流读取与真机单位校验待完成。',
+    reason: '0x0902 可读到适配器电压；服务还未接入 0x10902/0x110902 电流读取，当前不能计算真实瓦数。',
     reference: '真机实测 + research/conclusions.md 第 356 行',
-    fill: (t) => gen.adapterPowerWAt(t),
   },
   {
     key: 'BatteryHealthPercent',
@@ -39,7 +35,6 @@ export const MOCK_SOURCES = [
     serviceSupport: 'unknown',
     reason: '健康度按满充容量 / 设计容量计算；服务现在通过 LibreHardwareMonitor 和 Windows 电池接口读取两项容量，需在目标机确认返回值。',
     reference: 'LibreHardwareMonitor 0.9.6；运行时能力探测',
-    fill: () => 96,
   },
   {
     key: 'BatteryDesignCapacityWh',
@@ -47,7 +42,6 @@ export const MOCK_SOURCES = [
     serviceSupport: 'unknown',
     reason: '服务通过 LibreHardwareMonitor 的 Windows 电池设备接口读取设计容量；需在目标机确认电池驱动是否提供。',
     reference: 'LibreHardwareMonitor 0.9.6；运行时能力探测',
-    fill: () => 83,
   },
   {
     key: 'BatteryFullChargeCapacityWh',
@@ -55,7 +49,6 @@ export const MOCK_SOURCES = [
     serviceSupport: 'yes',
     reason: '来自 Windows 电池状态接口或 LibreHardwareMonitor；服务未返回时不能用设计容量代替。',
     reference: 'HonorControl.Service BatteryService + LibreHardwareMonitor',
-    fill: () => 79.68,
   },
 ]
 
@@ -71,13 +64,6 @@ export const MOCK_FANS = {
   serviceSupport: 'unknown',
   reason: '服务通过 LibreHardwareMonitor 在系统服务中读取当前 RPM；机型是否暴露风扇传感器需实测，额定最高转速不由库保证。',
   reference: 'LibreHardwareMonitor 0.9.6；运行时能力探测',
-}
-
-/** 风扇策略曲线：既读不到也写不了，曲线图上的形态是示例策略。 */
-export const MOCK_FAN_CURVE = {
-  serviceSupport: 'no',
-  reason: '风扇策略的读/写都要经过荣耀内核驱动（\\.\\WDT0001）+ NLD 风扇库，没有用户态通道，因此曲线形态是按"温度越高转速越高"画的示例策略，不代表本机固件里的真实曲线。',
-  reference: 'research/conclusions.md 第 212 行',
 }
 
 /**

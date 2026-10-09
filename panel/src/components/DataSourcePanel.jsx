@@ -80,12 +80,6 @@ export function DataSourcePanel() {
       kind: status('Fans', telemetry.Fans?.length ? telemetry.Fans : null),
       reason: mockFields.includes('Fans') ? MOCK_FANS.reason : '服务未从此设备返回风扇 RPM。',
     },
-    {
-      key: 'FanCurve',
-      label: '风扇策略曲线',
-      kind: 'example',
-      reason: '曲线策略仍是示例数据，服务尚未提供固件曲线。',
-    },
   ]
   const rows = [...serviceRows, ...hardwareRows, ...sensorRows]
 

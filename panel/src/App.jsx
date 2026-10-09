@@ -4,7 +4,7 @@ import { useQueryClient } from '@tanstack/react-query'
 import { PAGES, useAppStore } from './app/store.js'
 import { useAppTheme } from './app/theme.js'
 import { useEnsureTray } from './app/useEnsureTray.js'
-import { useServiceHealth, useServiceSnapshot } from './data/queries.js'
+import { useServiceSnapshot } from './data/queries.js'
 import { Icon } from './components/Icon.jsx'
 import { HomePage } from './pages/HomePage.jsx'
 import { BatterySettingsPage } from './pages/BatterySettingsPage.jsx'
@@ -42,9 +42,6 @@ export default function App() {
   const setPage = useAppStore((state) => state.setPage)
   const { isDark, themeMode, setThemeMode } = useAppTheme()
   const queryClient = useQueryClient()
-  const { serviceReachable } = useServiceHealth()
-  const { snapshot } = useServiceSnapshot()
-
   // 面板打开时单独拉起托盘；托盘有单实例互斥量，重复调用无害。
   useEnsureTray()
 
@@ -94,15 +91,7 @@ export default function App() {
             {pinned.map(renderItem)}
           </div>
 
-          <div className="hc-nav-foot">
-            <span className="hc-avatar" aria-hidden="true">
-              HC
-            </span>
-            <span className="hc-nav-foot-text">
-              <b>Honor Control</b>
-              {serviceReachable ? serviceFooterText(snapshot) : '后台服务未连接'}
-            </span>
-          </div>
+          <ServiceFooter />
         </nav>
 
         <main className="hc-content">
@@ -150,6 +139,20 @@ export default function App() {
           </div>
         </main>
       </div>
+    </div>
+  )
+}
+
+/** 服务状态单独订阅，快照轮询只更新导航页脚。 */
+function ServiceFooter() {
+  const { snapshot, serviceReachable } = useServiceSnapshot()
+  return (
+    <div className="hc-nav-foot">
+      <span className="hc-avatar" aria-hidden="true">HC</span>
+      <span className="hc-nav-foot-text">
+        <b>Honor Control</b>
+        {serviceReachable ? serviceFooterText(snapshot) : '后台服务未连接'}
+      </span>
     </div>
   )
 }

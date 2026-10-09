@@ -79,7 +79,6 @@ internal sealed class TelemetrySampler : BackgroundService
             {
                 TelemetrySnapshot sample = Sample();
                 Volatile.Write(ref current, sample);
-                history.RecordRecent(sample);
                 if (!loggedCapabilities)
                 {
                     logger.LogInformation("遥测采样器启动。能力：{Supports}", string.Join(", ",
@@ -198,7 +197,6 @@ internal sealed class TelemetrySampler : BackgroundService
                 ? string.Empty
                 : "LibreHardwareMonitor 未从此设备返回风扇转速。",
             ["PowerLimits"] = "功耗墙的写入路径尚未定位。",
-            ["FanCurve"] = "风扇曲线读写路径尚未接入。",
         };
 
         Dictionary<string, bool> supports = new()
@@ -213,7 +211,6 @@ internal sealed class TelemetrySampler : BackgroundService
             ["Sensors"] = readings.Sensors.Count > 0,
             ["Fans"] = readings.Fans.Count > 0,
             ["PowerLimits"] = false,
-            ["FanCurve"] = false,
             ["History"] = true,
         };
 

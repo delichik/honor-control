@@ -1,15 +1,13 @@
 import { useEffect, useState } from 'react'
 import { InfoBar } from '../components/InfoBar.jsx'
 import { SectionCard } from '../components/SectionCard.jsx'
-import { FanCurve } from '../components/FanCurve.jsx'
 import { MockBadge } from '../components/MockBadge.jsx'
 import { StatusBanner } from '../components/StatusBanner.jsx'
-import { RadioCard, SelectorBar, SettingRow, Slider } from '../components/Controls.jsx'
+import { RadioCard, SettingRow, Slider } from '../components/Controls.jsx'
 import { PERFORMANCE_MODES } from '../data/contract.js'
 import { useServiceSnapshot, useSetPerformanceMode, useTelemetry } from '../data/queries.js'
 import { useAppStore } from '../app/store.js'
 import { exampleModeProfiles } from '../data/modeProfiles.js'
-import { EXAMPLE_FAN_CURVE } from '../data/fanCurve.js'
 
 /** 设计稿里的模式名比契约里的短，图标同首页的分段控件。 */
 const MODE_CARDS = {
@@ -17,27 +15,17 @@ const MODE_CARDS = {
   2: { label: '高性能', icon: 'bolt-filled' },
 }
 
-/** 风扇策略的分段控件：自动（跟性能模式）/ 最大 / 自定义（示例控制点）。 */
-const FAN_MODES = [
-  { id: 'auto', label: '自动', icon: 'sparkle' },
-  { id: 'max', label: '最大', icon: 'bolt-filled' },
-  { id: 'custom', label: '自定义', icon: 'sliders' },
-]
-
 const watts = (value) => `${value} W`
 
 /**
  * 性能设置。
  *
- * 版式照设计稿：左边 sp5 的「性能模式」单选卡，右边 sp7 的「功耗限制」设置行，
- * 下面整宽 sp12 的「风扇曲线」（头部是策略分段控件）。
+ * 版式照设计稿：左边 sp5 的「性能模式」单选卡，右边 sp7 的「功耗限制」设置行。
  *
  * 性能模式（智能/高能）是真正能写的：服务发 0x0C07，并在写前复核 AC 供电、电量 ≥ 20%、
  * 目标电源方案是否存在，写后回读 0x0E04 与电源方案。
  *
- * 功耗限制（PL1/PL2/整机上限）与风扇曲线目前**不可写**：
- * 写路径要么没定位（PL 的 GVNT/WVST），要么需要荣耀内核驱动（风扇）。
- * 因此这里把它们渲染成只读展示并标注"示例"，不做成假的可写控件。
+ * 功耗限制（PL1/PL2/整机上限）目前不可写，保留只读机型档案信息。
  */
 export function PerformanceSettingsPage() {
   const { telemetry, fullMock, serviceReachable, error, isLoading } = useTelemetry()
@@ -48,7 +36,6 @@ export function PerformanceSettingsPage() {
   const actualMode = snapshot?.Actual?.PerformanceMode ?? telemetry.PerformanceMode ?? null
   const configuredMode = snapshot?.Desired?.PerformanceMode ?? actualMode ?? 1
   const [mode, setMode] = useState(configuredMode)
-  const [fanMode, setFanMode] = useState('auto')
 
   useEffect(() => {
     if (!setPerformanceMode.isPending) setMode(configuredMode)
@@ -56,14 +43,6 @@ export function PerformanceSettingsPage() {
 
   const profile = exampleModeProfiles(mode)
   const modeLabel = (value) => MODE_CARDS[value]?.label ?? PERFORMANCE_MODES.find((item) => item.id === value)?.label ?? '未知'
-
-  // 曲线只做预览：自动策略跟着当前模式走，最大是满转，自定义用示例控制点。
-  const policy =
-    fanMode === 'max'
-      ? { kind: 'max' }
-      : fanMode === 'custom'
-        ? { kind: 'custom', points: EXAMPLE_FAN_CURVE }
-        : { kind: 'auto', mode }
 
   return (
     <>
@@ -168,25 +147,6 @@ export function PerformanceSettingsPage() {
         </div>
       </SectionCard>
 
-      <SectionCard
-        span={12}
-        icon="fan"
-        title="风扇曲线"
-        actions={
-          <>
-            <MockBadge field="FanCurve" />
-            <SelectorBar
-              items={FAN_MODES}
-              value={fanMode}
-              onChange={setFanMode}
-              ariaLabel="风扇策略"
-            />
-          </>
-        }
-      >
-        <FanCurve sensors={[]} fans={[{ Id: 'preview', Rpm: 3000, MaxRpm: 6000 }]} policy={policy} />
-        <div className="hc-edit-hint">曲线是示例策略：服务暂无风扇写通道，这里只预览三种策略的形态。</div>
-      </SectionCard>
     </>
   )
 }

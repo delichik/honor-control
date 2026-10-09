@@ -1,4 +1,5 @@
-import { FAN_MAX_RPM } from '../data/fanCurve.js'
+
+const VISUAL_MAX_RPM = 6000
 
 /**
  * 风扇转子 —— 设计稿里的 `.fan-rotor` + `.rotor`。
@@ -29,12 +30,12 @@ const BLADE = bladePath(32, 32, 7, 26, 0, 22, 48)
 const BLADE_ANGLES = [0, 72, 144, 216, 288]
 
 /** 转速 → 每转耗时（秒）：0 → 2.60s，3000 → 1.20s，6000 → 0.25s。 */
-export function secondsPerTurn(rpm, maxRpm = FAN_MAX_RPM) {
+export function secondsPerTurn(rpm, maxRpm = VISUAL_MAX_RPM) {
   const ratio = Math.min(1, Math.max(0, rpm / maxRpm))
   return 2.6 - Math.pow(ratio, 0.75) * 2.35
 }
 
-export function FanRotor({ label, rpm = 0, maxRpm = FAN_MAX_RPM }) {
+export function FanRotor({ label, rpm = 0, maxRpm = VISUAL_MAX_RPM }) {
   const hasRatedMaximum = typeof maxRpm === 'number' && Number.isFinite(maxRpm) && maxRpm > 0
   const ratio = hasRatedMaximum ? Math.min(1, Math.max(0, rpm / maxRpm)) : null
   const stopped = !hasRatedMaximum || rpm < 120

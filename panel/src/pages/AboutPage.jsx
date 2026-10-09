@@ -99,7 +99,7 @@ export function AboutPage() {
           <SettingRow title="风扇数量">
             <SettingValue>
               <MockableValue field="Fans" mocked={mockFields.includes('Fans')}>
-                {fans.length} 个
+                {fans.length > 0 ? `${fans.length} 个` : '—'}
               </MockableValue>
             </SettingValue>
           </SettingRow>

@@ -80,7 +80,7 @@ export function StatusBanner({ serviceReachable, error, snapshot, loading, fullM
     )
   }
 
-  if (forceMock) {
+  if (fullMock || forceMock) {
     messages.push(
       <InfoBar key="mock" tone="accent" icon="info" title="已打开全量示例数据">
         界面上的所有读数都来自模拟模型，不会反映真实硬件状态。
