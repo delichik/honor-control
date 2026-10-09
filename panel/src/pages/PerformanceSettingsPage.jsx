@@ -119,7 +119,7 @@ export function PerformanceSettingsPage() {
             disabled={mode === actualMode || setPerformanceMode.isPending}
             onClick={() => setPerformanceMode.mutate({ PerformanceMode: mode })}
           >
-            {setPerformanceMode.isPending ? '正在切换…' : '切换性能模式'}
+            {setPerformanceMode.isPending ? '应用中…' : '应用'}
           </button>
         </div>
 
@@ -130,7 +130,7 @@ export function PerformanceSettingsPage() {
         ) : null}
         {setPerformanceMode.isSuccess && mode === actualMode ? (
           <InfoBar tone="success" icon="check-circle" title="已生效">
-            已切换到 {modeLabel(actualMode)}，并回读确认。
+            已切换到 {modeLabel(actualMode)}。
           </InfoBar>
         ) : null}
       </SectionCard>

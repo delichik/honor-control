@@ -571,15 +571,19 @@ html {
   box-shadow: inset 0 0 0 1px var(--card-stroke);
 }
 
-/* 过热参考线 55 °C：细、短，避免与指针混淆 */
-.hc-s-bar::after {
-  content: '';
+.hc-s-threshold {
   position: absolute;
-  left: 55%;
-  top: -2px;
-  bottom: -2px;
-  width: 1.5px;
-  background: rgba(0, 0, 0, 0.42);
+  top: -3px;
+  bottom: -3px;
+  z-index: 1;
+  transform: translateX(-50%);
+}
+
+.hc-s-threshold--warn { border-left: 1.5px dashed var(--caution); }
+.hc-s-threshold--hot { border-left: 2px solid var(--critical); }
+
+.hc-s-needle {
+  z-index: 2;
 }
 
 .hc-s-needle {
@@ -1042,9 +1046,18 @@ html {
   color: var(--text-tertiary);
 }
 
+.hc-nav-group {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  width: 100%;
+}
+
 .hc-nav-item {
   position: relative;
   display: flex;
+  width: 100%;
+  box-sizing: border-box;
   align-items: center;
   gap: 12px;
   height: 36px;
@@ -1057,12 +1070,14 @@ html {
   font-size: 14px;
   line-height: 20px;
   text-align: left;
-  cursor: default;
+  cursor: pointer;
+  appearance: none;
   transition: background var(--dur-fast) var(--ease-out);
 }
 
 .hc-nav-item:hover { background: var(--subtle-hover); }
 .hc-nav-item:active { background: var(--subtle-pressed); }
+.hc-nav-item:focus-visible { outline: 2px solid var(--accent); outline-offset: -2px; }
 .hc-nav-item[aria-selected='true'] { background: var(--card-stroke); }
 
 .hc-nav-item[aria-selected='true']::before {

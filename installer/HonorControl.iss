@@ -94,11 +94,11 @@ const
   OpenExisting = 3;
   InvalidHandle = $FFFFFFFF;
 
-  { 服务的 DACL：Windows 默认服务权限 + 一条给交互式用户的 SERVICE_START(RP)。
-    刻意不含 SERVICE_STOP(WP)——托盘菜单的"退出"是经管道请求服务自己停止，
-    普通用户不该能直接停服务。写成固定值而不是"读取现有描述符再追加"：
+  { 服务的 DACL：SYSTEM 与管理员可以管理服务；交互式用户与服务账号仅可查询状态。
+    SERVICE_START(RP) 与 SERVICE_STOP(WP) 都不授予普通用户，面板启停时会显式请求 UAC。
+    写成固定值而不是"读取现有描述符再追加"：
     少一次外部调用，结果也可预测（这个服务本来就是本安装器创建的）。 }
-  ServiceSddl = 'D:(A;;CCLCSWRPWPDTLOCRRC;;;SY)(A;;CCDCLCSWRPWPDTLOCRSDRCWDWO;;;BA)(A;;CCLCSWRPWPDTLOCRRC;;;IU)(A;;CCLCSWRPWPDTLOCRRC;;;SU)(A;;RP;;;IU)';
+  ServiceSddl = 'D:(A;;CCLCSWRPWPDTLOCRRC;;;SY)(A;;CCDCLCSWRPWPDTLOCRSDRCWDWO;;;BA)(A;;CCLCSWLOCRRC;;;IU)(A;;CCLCSWLOCRRC;;;SU)';
 
 var
   ServiceExisted: Boolean;

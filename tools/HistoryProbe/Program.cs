@@ -45,11 +45,11 @@ internal static class Program
             Console.WriteLine();
 
             bool ok = true;
-            ok &= Check(store, "BatteryPower", "1h", 180, -20, 20);
+            ok &= Check(store, "BatteryPower", "1h", 60, -20, 20);
             ok &= Check(store, "BatteryPower", "24h", 240, -20, 20);
             ok &= Check(store, "BatteryPower", "7d", 300, -20, 20);
 
-            // 适配器功率在服务端恒为 null（没有可信来源）→ 必须返回空序列，让面板回退到示例数据，
+            // 适配器功率在服务端恒为 null（没有可信来源）→ 必须返回空序列，
             // 而不是画一条假的 0 线。
             HistorySeries adapter = store.Query(new HistoryQuery("AdapterPower", "24h", 240));
             Console.WriteLine($"AdapterPower 24h: {adapter.Samples.Count} 个点（期望 0——服务端不产这个指标）");
@@ -69,8 +69,9 @@ internal static class Program
     {
         HistorySeries series = store.Query(new HistoryQuery(metric, range, points));
         bool countOk = series.Samples.Count == points;
-        double average = series.Samples.Count > 0 ? series.Samples.Average() : double.NaN;
-        bool rangeOk = series.Samples.All(value => value >= min - 0.001 && value <= max + 0.001);
+        double[] values = series.Samples.Where(value => value.HasValue).Select(value => value!.Value).ToArray();
+        double average = values.Length > 0 ? values.Average() : double.NaN;
+        bool rangeOk = values.All(value => value >= min - 0.001 && value <= max + 0.001);
         // 7 天范围用 300 点覆盖 168 小时，正弦周期会互相抵消，均值应接近 0
         bool averageOk = Math.Abs(average) < 5;
         bool hoursOk = range switch

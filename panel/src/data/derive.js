@@ -3,9 +3,8 @@ import { POWER_EPSILON_W } from './contract.js'
 /**
  * 派生口径。
  *
- * 这些公式**必须与服务端一致**（可行性文档 5.3）。历史上原型里首页的"系统负载"是前端派生的，
- * 而监控页的负载是另一条独立序列，两者会给出不同的数字；这里把口径集中到一个文件，
- * 服务端接上采样器以后直接复用同一套定义。
+ * 首页的系统负载优先使用服务端的真实值；服务拿不到时才按可用的真实功率读数推导。
+ * 历史曲线直接显示服务记录，不由面板合成。
  */
 
 /** 充放电状态：以 ±0.6 W 判定，避免待机时的微小读数被当成充放电。 */
@@ -63,21 +62,30 @@ export function estimateMinutes({ chargeState, batteryPercent, batteryPowerW, de
  * Wh 的积分口径是 Σ(值 × dt)，与服务端保持一致。
  */
 export function summarizeSeries(samples, hours) {
-  if (!samples || samples.length === 0) {
-    return { peak: 0, average: 0, wh: 0 }
+  const values = (samples ?? []).filter(Number.isFinite)
+  if (values.length === 0) {
+    return { peak: null, average: null, wh: null }
   }
   const dt = hours / samples.length
   let peak = Number.NEGATIVE_INFINITY
   let sum = 0
-  for (const value of samples) {
+  for (const value of values) {
     if (value > peak) peak = value
     sum += value
   }
-  return { peak, average: sum / samples.length, wh: sum * dt }
+  const complete = values.length === samples.length
+  return {
+    peak: complete ? peak : null,
+    average: complete ? sum / values.length : null,
+    wh: complete ? sum * dt : null,
+  }
 }
 
 /** 充放电历史的统计：分别累计充入/放出的时长与电量。 */
 export function summarizeChargeSeries(samples, hours) {
+  if (!samples?.length || !samples.every(Number.isFinite)) {
+    return { chargeHours: null, dischargeHours: null, chargeWh: null, dischargeWh: null }
+  }
   const dt = hours / Math.max(1, samples?.length ?? 0)
   let chargeHours = 0
   let dischargeHours = 0

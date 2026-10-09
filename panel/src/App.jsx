@@ -45,7 +45,7 @@ export default function App() {
   const { serviceReachable } = useServiceHealth()
   const { snapshot } = useServiceSnapshot()
 
-  // OnDemand 策略的落地：用户打开面板就算「到场」，由面板把托盘拉起来（幂等，重复调用无害）。
+  // 面板打开时单独拉起托盘；托盘有单实例互斥量，重复调用无害。
   useEnsureTray()
 
   const CurrentPage = PAGE_COMPONENTS[page] ?? HomePage
@@ -84,7 +84,7 @@ export default function App() {
             {Object.entries(groups)
               .filter(([group]) => group)
               .map(([group, items]) => (
-                <div key={group}>
+                <div key={group} className="hc-nav-group">
                   <div className="hc-nav-group-title">{group}</div>
                   {items.map(renderItem)}
                 </div>

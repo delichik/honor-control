@@ -5,8 +5,9 @@ import { PowerChart } from '../components/PowerChart.jsx'
 import { StatusBanner } from '../components/StatusBanner.jsx'
 import { MockBadge } from '../components/MockBadge.jsx'
 import { useServiceSnapshot, useTelemetry } from '../data/queries.js'
-import { useRecentSamples } from '../app/useRecentSamples.js'
 import { useAppStore } from '../app/store.js'
+import { useHistory } from '../data/queries.js'
+import { RECENT_HISTORY_RANGE } from '../data/contract.js'
 
 /**
  * 首页：电源卡 + 性能与散热卡 + 最近一分钟的电池功率。
@@ -22,8 +23,16 @@ export function HomePage() {
   const { snapshot } = useServiceSnapshot()
   const forceMock = useAppStore((state) => state.forceMock)
 
-  // 首页的秒级小图用本地滚动窗口，不走服务端历史接口
-  const recentBatteryPower = useRecentSamples(telemetry.BatteryPowerW, 60)
+  const recentHistory = useHistory('batteryPower', RECENT_HISTORY_RANGE)
+  const recentHistoryMessage = recentHistory.isLoading
+    ? '读取中…'
+    : !recentHistory.serviceReachable
+      ? '服务未连接'
+      : recentHistory.error
+        ? '读取失败'
+          : recentHistory.hasData
+          ? `最近 ${Math.round(recentHistory.hours * 3600)} 秒`
+          : '暂无记录'
 
   return (
     <>
@@ -50,10 +59,10 @@ export function HomePage() {
         span={12}
         icon="chart"
         title="电池输入功率"
-        note="最近 60 秒"
+        note={recentHistoryMessage}
         actions={<MockBadge field="BatteryPowerW" />}
       >
-        <PowerChart samples={recentBatteryPower} />
+        <PowerChart samples={recentHistory.samples} hours={recentHistory.hours} emptyMessage={recentHistoryMessage} />
       </SectionCard>
     </>
   )

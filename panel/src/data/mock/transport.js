@@ -1,5 +1,5 @@
 import { COMMANDS, PROTOCOL_VERSION, emptyTelemetry } from '../contract.js'
-import { simulateHistory, simulateTelemetry, batteryPercentAt, isChargingAt } from './generator.js'
+import { simulateTelemetry, batteryPercentAt, isChargingAt } from './generator.js'
 
 /**
  * 开发用的假服务。
@@ -18,7 +18,6 @@ const state = {
   chargeStop: 70,
   performanceMode: 1,
   autoReconcile: true,
-  trayPolicy: 'OnDemand',
 }
 
 const delay = (ms) => new Promise((resolve) => setTimeout(resolve, ms))
@@ -70,12 +69,11 @@ function snapshot() {
       ServiceError: null,
       CheckedAt: current.CheckedAt,
     },
-    TrayPolicy: state.trayPolicy,
     ServiceVersion: '0.1.0-mock',
   }
 }
 
-export async function mockRequest(command, desired = null) {
+export async function mockRequest(command, desired = null, history = null) {
   await delay(40)
 
   switch (command) {
@@ -113,14 +111,15 @@ export async function mockRequest(command, desired = null) {
       }
 
     case COMMANDS.GetHistory: {
-      const metric = desired?.Metric ?? 'BatteryPower'
-      const range = desired?.Range ?? '24h'
-      const map = { '1h': [1, 180], '24h': [24, 240], '7d': [168, 300] }
-      const [hours, points] = map[range] ?? map['24h']
+      const query = history ?? desired
+      const metric = query?.Metric ?? 'BatteryPower'
+      const range = query?.Range ?? '24h'
+      const map = { '1m': [1 / 60, 60], '1h': [1, 60], '24h': [24, 240], '7d': [168, 300] }
+      const [hours] = map[range] ?? map['24h']
       return {
         Version: PROTOCOL_VERSION,
         Error: null,
-        History: { Metric: metric, Range: range, Hours: hours, Samples: simulateHistory(toGeneratorMetric(metric), hours, points) },
+        History: { Metric: metric, Range: range, Hours: hours, Samples: [] },
       }
     }
 
@@ -143,23 +142,9 @@ export async function mockRequest(command, desired = null) {
       state.autoReconcile = desired?.AutoReconcile ?? state.autoReconcile
       return { Version: PROTOCOL_VERSION, Error: null, Snapshot: snapshot() }
 
-    case COMMANDS.SetTrayPolicy:
-      state.trayPolicy = desired?.TrayPolicy ?? state.trayPolicy
-      return { Version: PROTOCOL_VERSION, Error: null, Snapshot: snapshot() }
-
-    case COMMANDS.ShutdownService:
-      return { Version: PROTOCOL_VERSION, Error: '示例数据模式不会真的停止服务。', Snapshot: snapshot() }
-
     default:
       return { Version: PROTOCOL_VERSION, Error: `未知命令：${command}`, Snapshot: null }
   }
-}
-
-/** 把契约里的历史指标名映射到 generator 的命名。 */
-function toGeneratorMetric(metric) {
-  if (metric === 'BatteryPower') return 'batteryPower'
-  if (metric === 'AdapterPower') return 'adapterPower'
-  return 'systemLoad'
 }
 
 /** 仅供 demo 面板展示用：当前示例电量与充电方向，便于人工核对自洽性。 */

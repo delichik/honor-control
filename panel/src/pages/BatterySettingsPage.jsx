@@ -124,7 +124,7 @@ export function BatterySettingsPage() {
             </div>
           </div>
         ) : (
-          <div className="hc-edit-hint">服务未能读取设备当前阈值，读取恢复前不显示或提交默认值。</div>
+          <div className="hc-edit-hint">当前阈值不可用</div>
         )}
 
         <div className="hc-card-actions">
@@ -134,7 +134,7 @@ export function BatterySettingsPage() {
             onClick={apply}
             disabled={!thresholdsAvailable || !dirty || setCharge.isPending}
           >
-            {setCharge.isPending ? '正在写入…' : '应用到硬件'}
+            {setCharge.isPending ? '应用中…' : '应用'}
           </button>
           <button type="button" className="hc-btn" onClick={reset} disabled={!dirty}>
             还原
@@ -150,7 +150,7 @@ export function BatterySettingsPage() {
         {setCharge.isSuccess && !dirty ? (
           <InfoBar tone="success" icon="check-circle" title="已生效">
             
-              已写入并回读校验：{snapshot?.Actual?.ChargeStart ?? start}% – {snapshot?.Actual?.ChargeEnd ?? stop}%
+              已应用：{snapshot?.Actual?.ChargeStart ?? start}% – {snapshot?.Actual?.ChargeEnd ?? stop}%
             
           </InfoBar>
         ) : null}

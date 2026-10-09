@@ -21,11 +21,13 @@ namespace HonorControl.Service.Telemetry;
 internal sealed class HistoryStore
 {
     private const int RetentionDays = 30;
+    private const int RecentSampleCount = 60;
     private static readonly string DefaultDirectoryPath = Path.Combine(
         Environment.GetFolderPath(Environment.SpecialFolder.CommonApplicationData), "HonorControl", "history");
 
     private readonly object sync = new();
     private readonly string directoryPath;
+    private readonly Queue<TelemetrySnapshot> recentSamples = new();
 
     public HistoryStore() : this(DefaultDirectoryPath)
     {
@@ -52,7 +54,7 @@ internal sealed class HistoryStore
                     Format(telemetry.BatteryPowerW),
                     Format(telemetry.AdapterPowerW),
                     Format(telemetry.SystemLoadW),
-                    telemetry.PluggedIn ? "1" : "0");
+                    telemetry.PluggedIn switch { true => "1", false => "0", null => string.Empty });
 
                 string path = Path.Combine(directoryPath, telemetry.CheckedAt.ToLocalTime().ToString("yyyy-MM-dd", CultureInfo.InvariantCulture) + ".csv");
                 File.AppendAllText(path, line + Environment.NewLine, new UTF8Encoding(false));
@@ -65,18 +67,29 @@ internal sealed class HistoryStore
         }
     }
 
+    /// <summary>保留服务最近 60 个 1 Hz 采样，供首页短时曲线查询。</summary>
+    public void RecordRecent(TelemetrySnapshot telemetry)
+    {
+        lock (sync)
+        {
+            recentSamples.Enqueue(telemetry);
+            while (recentSamples.Count > RecentSampleCount) recentSamples.Dequeue();
+        }
+    }
+
     /// <summary>
     /// 查询一个指标的等间隔序列。
     ///
-    /// 返回的点数等于请求的 Points（数据不足时更少）；某个时间桶没有数据时**沿用上一个已知值**，
-    /// 这样曲线不会凭空断开——代价是服务停机期间会显示成一条平线，这一点在面板的说明文字里有交代。
-    /// 指标在当前机器上完全不可用时返回空数组，让面板回退到示例数据（而不是画一条假的 0 线）。
+    /// 返回的点数等于请求的 Points（数据不足时更少）。没有服务记录的时间桶返回 null，
+    /// 不沿用旧值，也不补 0；面板据此在曲线上留出空档。
     /// </summary>
     public HistorySeries Query(HistoryQuery query)
     {
+        if (query.Range == "1m") return QueryRecent(query);
+
         (double hours, int defaultPoints) = query.Range switch
         {
-            "1h" => (1, 180),
+            "1h" => (1, 60),
             "24h" => (24, 240),
             "7d" => (168, 300),
             _ => (24, 240),
@@ -88,17 +101,15 @@ internal sealed class HistoryStore
         List<(DateTimeOffset Time, double? Value)> samples = ReadSamples(query.Metric, from, until);
 
         // 该指标在这段时间里**一个有效值都没有**（例如适配器功率：服务端没有可信来源，
-        // 采样时一直写空字段）→ 返回空序列，让面板回退到示例数据。
+        // 采样时一直写空字段）→ 返回空序列，面板显示暂无记录。
         // 不能返回一串 0：那会在界面上画出一条"功耗恒为 0"的假曲线。
         if (!samples.Any(sample => sample.Value.HasValue))
         {
-            return new HistorySeries(query.Metric, query.Range, hours, Array.Empty<double>());
+            return new HistorySeries(query.Metric, query.Range, hours, Array.Empty<double?>());
         }
 
-        double[] result = new double[points];
+        double?[] result = new double?[points];
         double bucketSeconds = hours * 3600 / points;
-        int index = 0;
-        double? carry = null;
         int cursor = 0;
 
         for (int bucket = 0; bucket < points; bucket++)
@@ -116,16 +127,40 @@ internal sealed class HistoryStore
                 cursor++;
             }
 
-            if (count > 0)
-            {
-                carry = sum / count;
-            }
-
-            // carry 仍为 null 表示"这段时间还没有任何数据"：用 0 占位，曲线前段是平的。
-            result[index++] = carry ?? 0;
+            result[bucket] = count > 0 ? sum / count : null;
         }
 
         return new HistorySeries(query.Metric, query.Range, hours, result);
+    }
+
+    private HistorySeries QueryRecent(HistoryQuery query)
+    {
+        TelemetrySnapshot[] samples;
+        lock (sync) samples = recentSamples.ToArray();
+
+        int points = query.Points > 0 ? Math.Min(query.Points, RecentSampleCount) : RecentSampleCount;
+        DateTimeOffset latest = samples.Length > 0 ? samples[^1].CheckedAt : DateTimeOffset.Now;
+        int firstInRange = Array.FindIndex(samples, sample => sample.CheckedAt >= latest.AddSeconds(-60));
+        if (firstInRange < 0) firstInRange = samples.Length;
+
+        // Drop data before the latest missing value so the graph never bridges a
+        // sampling failure with a fabricated zero or an old reading.
+        int latestGap = Array.FindLastIndex(samples, sample => GetValue(sample, query.Metric) is null);
+        int start = Math.Max(firstInRange, latestGap + 1);
+        List<(DateTimeOffset Time, double Value)> recorded = samples[start..]
+            .Select(sample => (sample.CheckedAt, Value: GetValue(sample, query.Metric)))
+            .Where(item => item.Value.HasValue)
+            .Select(item => (item.CheckedAt, item.Value!.Value))
+            .ToList();
+
+        if (recorded.Count == 0)
+            return new HistorySeries(query.Metric, query.Range, 1.0 / 60, Array.Empty<double?>());
+
+        double hours = recorded.Count > 1
+            ? Math.Max(1.0 / 3600, (recorded[^1].Time - recorded[0].Time).TotalHours)
+            : 1.0 / 3600;
+        double[] values = recorded.TakeLast(points).Select(item => item.Value).ToArray();
+        return new HistorySeries(query.Metric, query.Range, hours, values.Select(value => (double?)value).ToArray());
     }
 
     private List<(DateTimeOffset, double?)> ReadSamples(string metric, DateTimeOffset from, DateTimeOffset until)
@@ -171,6 +206,14 @@ internal sealed class HistoryStore
         samples.Sort((left, right) => left.Item1.CompareTo(right.Item1));
         return samples;
     }
+
+    private static double? GetValue(TelemetrySnapshot telemetry, string metric) => metric switch
+    {
+        "BatteryPower" => telemetry.BatteryPowerW,
+        "AdapterPower" => telemetry.AdapterPowerW,
+        "SystemLoad" => telemetry.SystemLoadW,
+        _ => null,
+    };
 
     private static double? Parse(string text) =>
         string.IsNullOrWhiteSpace(text) ? null : double.Parse(text, CultureInfo.InvariantCulture);

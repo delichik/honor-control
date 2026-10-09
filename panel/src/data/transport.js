@@ -15,16 +15,17 @@ export function isTauriRuntime() {
  * 发一条服务请求。
  * @param {string} command contract.js 的 COMMANDS 之一
  * @param {object|null} desired 写命令的载荷
+ * @param {object|null} history 历史查询参数
  * @returns {Promise<{Version:number, Error:string|null, Snapshot?:object, Telemetry?:object, Capabilities?:object, History?:object}>}
  */
-export async function serviceRequest(command, desired = null) {
+export async function serviceRequest(command, desired = null, history = null) {
   if (!isTauriRuntime()) {
     const { mockRequest } = await import('./mock/transport.js')
-    return mockRequest(command, desired)
+    return mockRequest(command, desired, history)
   }
 
   try {
-    return await invoke('service_request', { command, desired })
+    return await invoke('service_request', { command, desired, history })
   } catch (error) {
     // Rust 侧把所有失败都映射成可以直接展示给用户的中文串；这里只做兜底。
     throw new Error(typeof error === 'string' ? error : (error?.message ?? '与服务通信失败。'))
@@ -34,12 +35,7 @@ export async function serviceRequest(command, desired = null) {
 /**
  * 启动 Honor Control 服务。
  *
- * 注意：这不是管道命令——服务自己没法把自己启动起来，必须走 SCM。安装器已经给服务
- * 安全描述符授予了 Authenticated Users 的 SERVICE_START，所以中完整性的面板可以直接调用。
- *
- * TODO(rust): `start_service` 命令还没在 src-tauri 里实现（需要在 Rust 侧调用 advapi32 的
- * OpenSCManagerW/OpenServiceW/StartServiceW）。在补上之前，这里会明确失败并把原因交给 UI，
- * 而不是静默什么都不做。
+ * 这不是管道命令，而是 SCM 操作；Rust 侧会显式请求 UAC。
  */
 export async function startService() {
   if (!isTauriRuntime()) {
@@ -54,16 +50,24 @@ export async function startService() {
   }
 }
 
-/** 请求服务自行停止（owner-only 管道命令）。托盘菜单的"退出"走同一条路径。 */
-export async function shutdownService() {
-  return serviceRequest('ShutdownService')
+/** 停止服务（SCM），显式请求 UAC；托盘退出只退出托盘进程。 */
+export async function stopService() {
+  if (!isTauriRuntime()) {
+    return { stopped: false, message: '浏览器开发模式下无法停止服务。' }
+  }
+  try {
+    await invoke('stop_service')
+    return { stopped: true, message: null }
+  } catch (error) {
+    const message = typeof error === 'string' ? error : (error?.message ?? '停止服务失败。')
+    return { stopped: false, message }
+  }
 }
 
 /**
  * 拉起托盘进程。
  *
- * 策略 `OnDemand`（默认）的含义是"用户在场时才出现托盘"，而用户在场最直接的信号就是打开了面板，
- * 所以由面板来拉起它。托盘有单实例互斥量，重复调用无害。
+ * 面板打开时单独拉起托盘，不依赖服务状态或配置；托盘有单实例互斥量，重复调用无害。
  *
  * 浏览器开发模式下没有托盘可拉，直接返回 false（不是错误）。
  */

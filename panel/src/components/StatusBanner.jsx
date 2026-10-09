@@ -7,11 +7,11 @@ import { useStartService } from '../data/queries.js'
  * 服务状态横幅 —— 设计稿的 InfoBar。
  *
  * 只报告**服务的客观状态**，不做任何"自动修复"以外的花活：
- * - 连不上：说明原因（服务未安装/未启动/权限不足），并提供启动入口；
+ * - 连不上：提供启动入口；
  * - 连上了但有异常（电脑管家占用、写入失败）：照实转述服务返回的错误串。
  *
  * 设计稿的规则：正常充放电状态**不**出文字，只有异常才出现这一条。
- * 面板是普通权限进程，启动服务靠安装器授予的 SERVICE_START，不会弹 UAC。
+ * 启停服务由 SCM 执行，并由 Windows 显示 UAC。
  */
 export function StatusBanner({ serviceReachable, error, snapshot, loading, fullMock, forceMock }) {
   const startService = useStartService()
@@ -21,7 +21,7 @@ export function StatusBanner({ serviceReachable, error, snapshot, loading, fullM
       <div className="hc-infobar" data-tone="accent">
         <Spinner size="tiny" />
         <div className="hc-infobar-body">
-          <div className="hc-infobar-title">正在连接 Honor Control 服务…</div>
+          <div className="hc-infobar-title">正在连接服务…</div>
         </div>
       </div>
     )
@@ -32,7 +32,7 @@ export function StatusBanner({ serviceReachable, error, snapshot, loading, fullM
       <InfoBar
         tone="critical"
         icon="warn"
-        title="未连接到 Honor Control 服务"
+        title="服务未连接"
         actions={
           <button type="button" className="hc-btn hc-btn--accent" disabled={startService.isPending} onClick={() => startService.mutate()}>
             <Icon name="refresh" />

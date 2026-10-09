@@ -1,7 +1,7 @@
 // Honor Control 控制面板：Tauri v2 外壳。
 //
 // 职责边界：本进程把前端的 invoke 转发给 Honor Control Windows 服务（LocalSystem，.NET 8），
-// 并通过 SCM 启动该服务。托盘图标是独立的 C# 进程，本 crate 不涉及托盘。
+// 并通过 SCM 启停该服务。托盘是独立的 C# 进程，面板只负责拉起它，不托管图标或生命周期。
 //
 // 生产构建下不显示控制台窗口（服务不可用时前端会拿到中文错误串并自行展示）。
 #![cfg_attr(not(debug_assertions), windows_subsystem = "windows")]
@@ -10,8 +10,8 @@ mod pipe;
 mod scm;
 
 /// 通信协议版本。必须与 `src/HonorControl.Contracts/ServiceContract.cs` 的 `ProtocolVersion` 一致：
-/// 面板与服务按同一份 v3 契约发布，版本不一致时直接报错让用户重装，不做降级兼容。
-const PROTOCOL_VERSION: i64 = 3;
+/// 面板与服务按同一份 v4 契约发布，版本不一致时直接报错让用户重装，不做降级兼容。
+const PROTOCOL_VERSION: i64 = 4;
 
 /// 单次请求超时（毫秒）。服务端每个请求自己有 5 秒超时（`PipeServer.cs` 的 `CancelAfter`），
 /// 超时后它直接关闭管道、什么都不回写。这里留 1 秒余量，让大多数故障落到“服务端超时断连”
@@ -19,24 +19,27 @@ const PROTOCOL_VERSION: i64 = 3;
 const REQUEST_TIMEOUT_MS: u64 = 6_000;
 
 /// 请求体。`rename_all = "PascalCase"` 是刻意的：System.Text.Json 未配置 camelCase 策略，
-/// 服务端按 PascalCase 属性名反序列化（Version / Command / Desired）。
-/// `desired` 不加 `skip_serializing_if`：契约里 `Desired` 是可空字段，请求样例显式带 `"Desired":null`。
+/// 服务端按 PascalCase 属性名反序列化（Version / Command / Desired / History）。两个可选载荷
+/// 始终序列化；历史查询必须进入 `History`，不能混到配置写入的 `Desired` 里。
 #[derive(serde::Serialize)]
 #[serde(rename_all = "PascalCase")]
 struct ServiceRequest<'a> {
     version: i64,
     command: &'a str,
     desired: Option<&'a serde_json::Value>,
+    history: Option<&'a serde_json::Value>,
 }
 
 fn build_request<'a>(
     command: &'a str,
     desired: Option<&'a serde_json::Value>,
+    history: Option<&'a serde_json::Value>,
 ) -> Result<serde_json::Value, String> {
     serde_json::to_value(ServiceRequest {
         version: PROTOCOL_VERSION,
         command,
         desired,
+        history,
     })
     .map_err(|error| format!("构造服务请求失败（内部错误）：{error}"))
 }
@@ -58,8 +61,9 @@ fn response_error(response: &serde_json::Value) -> Option<&str> {
 fn service_request(
     command: String,
     desired: Option<serde_json::Value>,
+    history: Option<serde_json::Value>,
 ) -> Result<serde_json::Value, String> {
-    let request = build_request(command.as_str(), desired.as_ref())?;
+    let request = build_request(command.as_str(), desired.as_ref(), history.as_ref())?;
     let response = pipe::call(&request, REQUEST_TIMEOUT_MS)?;
 
     // 响应版本校验：服务端自己的校验只覆盖请求方向，响应方向在这里兜底。
@@ -92,20 +96,21 @@ fn pipe_name() -> String {
     pipe::PIPE_NAME.to_string()
 }
 
-/// 通过 SCM 启动 Honor Control 服务。
-///
-/// 服务自己没法把自己启动起来，必须走 SCM；安装器已经给服务安全描述符授予了
-/// Authenticated Users 的 `SERVICE_START`，所以中完整性的面板直接调用即可，不会弹 UAC。
+/// 通过 SCM 启动服务；scm 模块会先请求 UAC，再由提权子进程执行。
 #[tauri::command(async)]
 fn start_service() -> Result<(), String> {
-    scm::start_service("HonorControlService")
+    scm::start_service()
+}
+
+/// 通过 SCM 停止服务；与托盘退出相互独立，并显式请求 UAC。
+#[tauri::command(async)]
+fn stop_service() -> Result<(), String> {
+    scm::stop_service()
 }
 
 /// 拉起托盘进程。
 ///
-/// 为什么由面板来做：策略 `OnDemand`（默认）的含义就是"用户在场时才出现托盘"，
-/// 而"用户在场"最直接的信号就是打开了面板。`Always` 由服务经登录任务拉起（见 TrayPolicyHost），
-/// 面板这边同样可以调用——托盘本身有单实例互斥量，重复拉起是无害的。
+/// 托盘由面板单独启动，不依赖服务的启动策略；托盘进程有单实例互斥量，重复拉起无害。
 ///
 /// 返回 true 表示确实启动了一个新进程（开发时用来核对路径解析）。
 #[tauri::command(async)]
@@ -155,11 +160,16 @@ fn resolve_tray_executable() -> Result<std::path::PathBuf, String> {
 }
 
 fn main() {
+    if let Some(exit_code) = scm::handle_elevated_helper() {
+        std::process::exit(exit_code);
+    }
+
     tauri::Builder::default()
         .invoke_handler(tauri::generate_handler![
             service_request,
             pipe_name,
             start_service,
+            stop_service,
             launch_tray
         ])
         .run(tauri::generate_context!())

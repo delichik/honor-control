@@ -6,16 +6,15 @@ import {
   PROTOCOL_VERSION,
   emptyTelemetry,
 } from './contract.js'
-import { serviceRequest, startService } from './transport.js'
+import { isTauriRuntime, serviceRequest, startService, stopService } from './transport.js'
 import { applyMockPolicy } from './mock/index.js'
-import { simulateHistory } from './mock/generator.js'
 import { useAppStore } from '../app/store.js'
 import { useNow } from '../app/useNow.js'
 
 /**
  * 服务数据统一走这里。
  *
- * 面板与服务按同一份 v3 契约发布：版本不一致时直接报错让用户重装，不做降级兼容。
+ * 面板与服务按同一份 v4 契约发布：版本不一致时直接报错让用户重装，不做降级兼容。
  * 唯一"降级"的是**服务拿不到的指标**——那些由 data/mock 补示例数据（见 5.1 矩阵）。
  *
  * 轮询频率按"服务端很便宜"设计：快照与遥测都只读服务端内存缓存，不打 WMI（可行性文档 5.3）。
@@ -72,7 +71,7 @@ export function useServiceSnapshot() {
 /**
  * 实时遥测（1 秒）。
  *
- * 服务连不上时整份走示例数据，并由 `fullMock` 标注"连电量这类本该来自服务的字段也是假的"。
+ * 原生面板只显示服务读数；浏览器预览或用户主动开启示例模式时才显示整份模拟数据。
  */
 export function useTelemetry() {
   const forceMock = useAppStore((state) => state.forceMock)
@@ -88,17 +87,21 @@ export function useTelemetry() {
     staleTime: 0,
   })
 
-  const telemetryAvailable = query.isSuccess
   const payload = query.data ?? null
+  // 原生面板连接服务前后都不显示模拟电量；浏览器预览和用户显式开启的示例模式才使用模拟数据。
+  const demoMode = forceMock || (!isTauriRuntime() && !health.isLoading && !health.serviceReachable)
 
   const result = useMemo(
-    () =>
-      applyMockPolicy(payload ?? emptyTelemetry(), {
-        forceMock,
-        serviceReachable: telemetryAvailable,
-        tMs: now,
-      }),
-    [payload, forceMock, telemetryAvailable, now],
+    () => {
+      if (demoMode) {
+        return applyMockPolicy(emptyTelemetry(), { forceMock: true, serviceReachable: false, tMs: now })
+      }
+      if (!query.isSuccess || !payload) {
+        return { telemetry: emptyTelemetry(), fullMock: false, mockFields: [] }
+      }
+      return applyMockPolicy(payload, { forceMock: false, serviceReachable: true, tMs: now })
+    },
+    [payload, demoMode, query.isSuccess, now],
   )
 
   return {
@@ -106,8 +109,8 @@ export function useTelemetry() {
     mockFields: result.mockFields,
     fullMock: result.fullMock,
     serviceReachable: health.serviceReachable,
-    error: health.error,
-    isLoading: health.isLoading,
+    error: query.error ?? health.error,
+    isLoading: health.isLoading || query.isLoading,
   }
 }
 
@@ -128,32 +131,33 @@ export function useCapabilities() {
 /**
  * 历史序列。
  *
- * 服务端返回的是**等间隔的数值数组**（不带时间戳）+ Hours，聚合口径见 data/derive.js。
- * 服务不可用时用同一套模型合成序列，保证监控页在开发期也有内容可看。
+ * 服务端返回记录或实时采样环中的数值；服务未连接或所选范围没有记录时返回空序列。
+ * 面板不合成或补齐历史数据。
  */
 export function useHistory(metricKey, range) {
   const health = useServiceHealth()
   const metric = HISTORY_METRICS[metricKey] ?? HISTORY_METRICS.batteryPower
-  const now = useNow(5000)
-
   const query = useQuery({
     queryKey: ['history', metric, range.id],
     queryFn: async () =>
       unwrap(
-        await serviceRequest(COMMANDS.GetHistory, { Metric: metric, Range: range.id, Points: range.points }),
+        await serviceRequest(COMMANDS.GetHistory, null, { Metric: metric, Range: range.id, Points: range.points }),
       ).History,
     enabled: health.serviceReachable,
-    refetchInterval: 60 * 1000,
+    refetchInterval: range.id === '1m' ? 1000 : 60 * 1000,
     retry: 0,
   })
 
-  const simulated = !query.isSuccess
-  const samples = useMemo(() => {
-    if (query.data?.Samples?.length) return query.data.Samples
-    return simulateHistory(metricKey, range.hours, range.points, now)
-  }, [query.data, metricKey, range.hours, range.points, now])
-
-  return { samples, hours: query.data?.Hours ?? range.hours, simulated, error: query.error }
+  const samples = query.data?.Samples ?? []
+  return {
+    samples,
+    hours: query.data?.Hours ?? range.hours,
+    hasData: samples.some(Number.isFinite),
+    hasGaps: samples.some((value) => !Number.isFinite(value)),
+    serviceReachable: health.serviceReachable,
+    isLoading: health.isLoading || query.isLoading,
+    error: query.error ?? health.error,
+  }
 }
 
 /** 写命令的统一收尾：成功后让快照/遥测立即失效，失败时把服务返回的原因交给调用方。 */
@@ -180,14 +184,9 @@ export function useSetAutoReconcile() {
   return useServiceMutation(COMMANDS.SetAutoReconcile)
 }
 
-/** 托盘策略是 v3 命令；服务没升级时写不进去，UI 需要禁用该项。 */
-export function useSetTrayPolicy() {
-  return useServiceMutation(COMMANDS.SetTrayPolicy)
-}
-
 /**
  * 启动服务（SCM，不是管道命令）。
- * 安装器给服务授予了 Users SERVICE_START，所以面板不需要提权。
+ * SCM 操作通过显式 UAC 授权执行。
  */
 export function useStartService() {
   const queryClient = useQueryClient()
@@ -204,7 +203,18 @@ export function useStartService() {
   })
 }
 
-/** 请求服务自行停止（owner-only）。面板上的"停止服务"与托盘菜单的"退出"是同一条路径。 */
-export function useShutdownService() {
-  return useServiceMutation(COMMANDS.ShutdownService)
+/** 停止服务也走 SCM，并显式请求 UAC；托盘退出只关闭托盘进程。 */
+export function useStopService() {
+  const queryClient = useQueryClient()
+  return useMutation({
+    mutationFn: async () => {
+      const result = await stopService()
+      if (!result.stopped) throw new Error(result.message ?? '停止服务失败。')
+      return result
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['snapshot'] })
+      queryClient.invalidateQueries({ queryKey: ['telemetry'] })
+    },
+  })
 }

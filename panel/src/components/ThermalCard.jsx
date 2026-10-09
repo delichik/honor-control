@@ -49,6 +49,8 @@ export function ThermalCard({ telemetry, mockFields = [], performanceMode = 1 })
                 label={sensor.Label}
                 tempC={sensor.TempC}
                 tone={temperatureTone(sensor.TempC, sensor.WarnC, sensor.HotC)}
+                warnC={sensor.WarnC}
+                hotC={sensor.HotC}
               />
             ))}
           </div>

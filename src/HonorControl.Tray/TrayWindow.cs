@@ -49,11 +49,6 @@ internal sealed class TrayWindow : IDisposable
     private const uint TpmReturnCommand = 0x0100;
     private const uint PollTimerId = 1;
     private const uint NiifInfo = 0x0001;
-    private const uint MbYesNo = 0x00000004;
-    private const uint MbIconWarning = 0x00000030;
-    private const uint MbIconInfo = 0x00000040;
-    private const uint MbSetForeground = 0x00010000;
-
     private const uint CommandOpen = 1001;
     private const uint CommandExit = 1002;
 
@@ -78,7 +73,7 @@ internal sealed class TrayWindow : IDisposable
     /// <summary>左键点击或菜单"打开控制面板"。</summary>
     public event Action? OpenRequested;
 
-    /// <summary>菜单"退出（停止后台服务）"，已确认。</summary>
+    /// <summary>退出托盘进程；后台服务保持运行。</summary>
     public event Action? ExitRequested;
 
     /// <summary>轮询节拍：由宿主决定节奏（托盘只负责转发消息）。</summary>
@@ -116,12 +111,6 @@ internal sealed class TrayWindow : IDisposable
         data.TimeoutOrVersion = 5000;
         ShellNotifyIconW(NimModify, ref data);
     }
-
-    /// <summary>退出确认。返回 false 表示用户取消。</summary>
-    public bool ConfirmExit() =>
-        MessageBoxW(handle,
-            "退出会同时停止 Honor Control 后台服务，充电阈值将不再被自动维护。\n\n确定退出吗？",
-            "Honor Control", MbYesNo | MbIconWarning | MbSetForeground) == 6; // IDYES
 
     public void Dispose()
     {
@@ -293,7 +282,7 @@ internal sealed class TrayWindow : IDisposable
             AppendMenuW(menu, MfSeparator, UIntPtr.Zero, null);
             AppendMenuW(menu, MfString | MfGrayed, UIntPtr.Zero, StatusLine);
             AppendMenuW(menu, MfSeparator, UIntPtr.Zero, null);
-            AppendMenuW(menu, MfString, new UIntPtr(CommandExit), "退出（停止后台服务）");
+            AppendMenuW(menu, MfString, new UIntPtr(CommandExit), "退出托盘");
 
             GetCursorPos(out Point cursor);
             // 必须先置前台，否则菜单不会在点击别处时关闭（Win32 菜单的固定套路）。
@@ -472,6 +461,4 @@ internal sealed class TrayWindow : IDisposable
     [return: MarshalAs(UnmanagedType.Bool)]
     private static extern bool KillTimer(IntPtr hWnd, uint id);
 
-    [DllImport("user32.dll", CharSet = CharSet.Unicode)]
-    private static extern int MessageBoxW(IntPtr hWnd, string text, string caption, uint type);
 }

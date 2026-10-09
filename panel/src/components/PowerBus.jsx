@@ -116,6 +116,7 @@ export function PowerBus({ state, adapterPowerW, systemLoadW, batteryPowerW }) {
 
 /** 母线状态机：未接适配器一律按放电画；否则按电池功率的 ±0.6 W 判定。 */
 export function busStateOf({ pluggedIn, chargeState }) {
+  if (pluggedIn === null || pluggedIn === undefined) return 'unknown'
   if (!pluggedIn) return 'discharging'
   if (chargeState === 'charging') return 'charging'
   if (chargeState === 'discharging') return 'discharging'

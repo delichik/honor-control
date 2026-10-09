@@ -73,7 +73,7 @@ export function PowerCard({ telemetry, mockFields = [] }) {
     >
       <div className={stacked ? 'hc-bus hc-bus--stacked' : 'hc-bus'}>
         <div className="hc-bus-side">
-          <div className="hc-bus-node" data-off={telemetry.PluggedIn ? undefined : 'true'}>
+          <div className="hc-bus-node" data-off={telemetry.PluggedIn === false ? 'true' : undefined}>
             <Icon name="plug" />
             <span>电源适配器</span>
           </div>

@@ -36,7 +36,7 @@ function buildTicks(min, max) {
   return ticks.length >= 2 ? ticks : [min, max]
 }
 
-export function HistoryChart({ series = [], hours = 24, yDomain, height = 300, maxPoints = 400 }) {
+export function HistoryChart({ series = [], hours = 24, yDomain, height = 300, maxPoints = 400, emptyMessage = '暂无服务历史记录' }) {
   const [wrapRef, width] = useElementWidth()
   const gradientPrefix = useId()
 
@@ -48,6 +48,7 @@ export function HistoryChart({ series = [], hours = 24, yDomain, height = 300, m
   const windowed = series.map((item) => ({ ...item, points: (item.samples ?? []).slice(-maxPoints) }))
   const length = windowed.reduce((max, item) => Math.max(max, item.points.length), 0)
   const flat = windowed.flatMap((item) => item.points).filter((value) => Number.isFinite(value))
+  const validCount = flat.length
 
   const dataMin = flat.length ? Math.min(...flat) : 0
   const dataMax = flat.length ? Math.max(...flat) : 1
@@ -64,7 +65,7 @@ export function HistoryChart({ series = [], hours = 24, yDomain, height = 300, m
   const span = yMax - yMin || 1
 
   const yFor = (value) => PAD.top + ih - ((value - yMin) / span) * ih
-  const xFor = (index) => PAD.left + (length <= 1 ? 0 : (index / (length - 1)) * iw)
+  const xFor = (index) => PAD.left + (length <= 1 ? iw : (index / (length - 1)) * iw)
   const ticks = buildTicks(yMin, yMax)
   const hasZero = yMin < 0 && yMax > 0
 
@@ -130,24 +131,52 @@ export function HistoryChart({ series = [], hours = 24, yDomain, height = 300, m
           现在
         </text>
 
-        {length < 2 ? (
+        {validCount === 0 ? (
           <text className="hc-chart-text" x={PAD.left} y={PAD.top + ih / 2} textAnchor="start">
-            正在采集…
+            {emptyMessage}
           </text>
         ) : null}
 
         {windowed.map((item, index) => {
-          if (item.points.length < 2) return null
-          const line = item.points
-            .map((value, pointIndex) => `${pointIndex === 0 ? 'M' : 'L'}${xFor(pointIndex).toFixed(1)} ${yFor(value).toFixed(1)}`)
+          const segments = []
+          let segment = []
+          item.points.forEach((value, pointIndex) => {
+            if (Number.isFinite(value)) segment.push([pointIndex, value])
+            else if (segment.length > 0) {
+              segments.push(segment)
+              segment = []
+            }
+          })
+          if (segment.length > 0) segments.push(segment)
+          const drawableSegments = segments.filter((points) => points.length >= 2)
+          if (segments.length === 0) return null
+
+          const line = drawableSegments
+            .map((points) => points
+              .map(([pointIndex, value], indexInSegment) => `${indexInSegment === 0 ? 'M' : 'L'}${xFor(pointIndex).toFixed(1)} ${yFor(value).toFixed(1)}`)
+              .join(' '))
             .join(' ')
           // 填充基线：跨零的图以零线为界，否则贴到绘图区底部（原稿的 cfg.zero 分支）
           const baseline = yFor(hasZero ? 0 : yMin)
-          const area = `${line} L${xFor(item.points.length - 1).toFixed(1)} ${baseline.toFixed(1)} L${xFor(0).toFixed(1)} ${baseline.toFixed(1)} Z`
+          const area = drawableSegments
+            .filter((points) => item.fill)
+            .map((points) => {
+              const segmentLine = points
+                .map(([pointIndex, value], indexInSegment) => `${indexInSegment === 0 ? 'M' : 'L'}${xFor(pointIndex).toFixed(1)} ${yFor(value).toFixed(1)}`)
+                .join(' ')
+              return `${segmentLine} L${xFor(points[points.length - 1][0]).toFixed(1)} ${baseline.toFixed(1)} L${xFor(points[0][0]).toFixed(1)} ${baseline.toFixed(1)} Z`
+            })
+            .join(' ')
 
           return (
             <g key={item.key}>
-              {item.fill ? <path d={area} fill={`url(#${gradientPrefix}-${index})`} /> : null}
+              {segments.filter((points) => points.length === 1).map((points) => {
+                const [pointIndex, value] = points[0]
+                return <circle key={pointIndex} cx={xFor(pointIndex)} cy={yFor(value)} r="3" fill={item.color} />
+              })}
+              {drawableSegments.length > 0 ? (
+                <>
+              {item.fill && area ? <path d={area} fill={`url(#${gradientPrefix}-${index})`} /> : null}
               {/* 颜色与虚线用行内 style：SVG 的表现属性优先级低于样式表，
                   写成属性会被 .hc-chart-line 里的 stroke 覆盖掉。 */}
               <path
@@ -155,6 +184,8 @@ export function HistoryChart({ series = [], hours = 24, yDomain, height = 300, m
                 d={line}
                 style={{ stroke: item.color, strokeDasharray: item.dash }}
               />
+                </>
+              ) : null}
             </g>
           )
         })}

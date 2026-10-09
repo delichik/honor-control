@@ -156,49 +156,42 @@ LibreHardwareMonitor 由 `HonorControl.Service` 在 SYSTEM 服务进程中打开
 面板是三个进程里的一个：它**不做任何硬件操作**，也不持有托盘图标。
 
 ```text
-HonorControl.Service.exe   LocalSystem：唯一的策略与状态权威（阈值、模式、遥测、历史、托盘策略）
-HonorControl.Tray.exe      用户会话、普通权限：托盘图标与菜单
+HonorControl.Service.exe   LocalSystem：硬件读写、遥测采样与历史记录
+HonorControl.Tray.exe      用户会话、普通权限：独立托盘图标与菜单
 honor-control-panel.exe    用户会话、普通权限：本面板
 ```
 
-- **拉起托盘**：默认策略 `OnDemand` 的含义是"用户在场才出现托盘"，而"用户在场"最直接的信号就是打开面板——
-  所以面板启动后会调用 Tauri 命令 `launch_tray` 把托盘拉起来（托盘有单实例互斥量，重复调用无害）。
-  策略 `Off` 时不拉；`Always` 由服务在拥有者的会话里直接拉起（复制 explorer 令牌 + `CreateProcessAsUser`）。
-  命令实现在 `src-tauri/src/main.rs`，解析 `..\tray\HonorControl.Tray.exe`，开发时可用
-  `HONORCONTROL_TRAY_PATH` 指定路径。
-- **启动服务**：面板是普通权限，靠安装器授予的 `SERVICE_START` 调 SCM（不会弹 UAC）。
-- **停止服务**：托盘菜单的"退出（停止后台服务）"经管道请求服务自己停止。
+- 面板打开时会单独拉起托盘；托盘可在服务未连接时继续运行并打开面板。
+- 托盘菜单的“退出托盘”只退出托盘进程，不会停止服务。
+- 面板读取实时数据和历史记录；服务负责硬件采样、历史落盘及硬件控制。
+- 服务启停由面板通过 SCM 执行，每次都会由 Windows 显示 UAC；普通用户无需管理员权限运行面板。
+- 托盘路径解析在 `src-tauri/src/main.rs`，开发时可用 `HONORCONTROL_TRAY_PATH` 指定路径。
 
 ## 与服务协议（重要）
 
-面板只认**协议 v3**，与服务端按同一份契约发布：`Version` 不一致就直接报错让用户重装，
+面板只认**协议 v4**，与服务端按同一份契约发布：`Version` 不一致就直接报错让用户重装，
 代码里没有任何"某功能只在某个服务版本可用"的分支。
 
-因此**服务端需要同步完成 v3 升级**，否则面板一个请求都发不出去：
+服务端与面板必须同步发布：
 
-- `ServiceContract.ProtocolVersion` 为 3；新增硬件传感器、电池满充容量，实际遥测缺失时返回 `null`；
-- `PipeServer.Execute` 增加 `GetTelemetry` / `GetCapabilities` / `GetHistory` / `SetTrayPolicy` / `ShutdownService`
-  （`GetState` 与三个既有写命令保留，命令名不变）；
-- 服务端新增采样器、能力探测与历史存储（命令与字段见 `docs/service-tray-tauri-feasibility.md` 的 5.3/5.4，改动清单见第 7 节）。
+- `ServiceContract.ProtocolVersion` 为 4；未知供电状态与历史缺口以 `null` 表示；
+- 服务端提供遥测、能力、历史查询与配置写命令，不保存托盘策略，也不接受自停命令；
+- 服务启停只由面板通过 SCM 发起，并显式请求管理员授权；硬件读写仍全部由服务执行。
 
-服务升级之前，用 `npm run dev` 开发界面即可——它会自动走示例数据，不需要服务在场。
+浏览器开发模式可用示例数据预览；原生面板在服务未连接或真实遥测尚未返回时显示未知值，不会先显示模拟电量。
 
 ## 尚未验证的部分
 
-- **Rust 外壳没有编译过**：开发机上没有 Rust/MSVC 工具链。`src-tauri` 的代码是按 Tauri v2 的
-  稳定 API 写的，但需要一次 `npm run tauri dev` 才能确认（尤其 `windowEffects` 的 Mica 取值、
-  `tauri`/`tauri-build` 的具体版本）。
+- **CI 构建**：`.github/workflows/build-windows.yml` 编译 Tauri 面板、服务、托盘与诊断工具，并打包安装器；
+  目标机上的 UAC、传感器和托盘交互仍需真机验证。
 - **Mica**：`tauri.conf.json` 里配了 `windowEffects: { effects: ["mica"] }`，要求 Windows 11 22H2+；
   前端已备好 CSS 回退底色（`--panel-backdrop`），去掉该键也不会影响可读性。要真正透出 Mica，
   还需要把窗口设为 `transparent: true`。
-- **`start_service` 依赖安装器改造**：面板是中等完整性进程，要通过 SCM 启动服务，需要安装器用
-  `sc.exe sdset` 给服务安全描述符授予 Authenticated Users 的 `SERVICE_START`（不授予 STOP）。
-  在改造完成前，设置页的"启动服务"会明确报错，而不是静默失败。
 - **图标**：`src-tauri/icons/icon.ico` 目前是从 WinUI 项目复制的多尺寸图标，正式打包前应确认尺寸齐全。
 - 打包产物体积：前端产物约 1.1 MB（gzip 约 313 KB），主要是 Fluent UI；后续可按页面做代码分割。
 
 ## 与其它部分的关系
 
-- 托盘图标**不在这个进程里**：它是独立的 C# 进程（与服务同技术栈），由服务/面板按配置拉起，
+- 托盘图标**不在这个进程里**：它是独立的 C# 进程（与服务同技术栈），由面板拉起，
   点击后启动本面板。设计见可行性文档 4.1 与 4.10。
 - 可行性分析、数据矩阵、协议草案：`docs/service-tray-tauri-feasibility.md`。

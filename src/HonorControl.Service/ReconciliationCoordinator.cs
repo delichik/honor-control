@@ -29,7 +29,7 @@ internal sealed class ReconciliationCoordinator : BackgroundService
         this.logger = logger;
     }
 
-    public ServiceSnapshot Snapshot() => new(configuration.Load(), Volatile.Read(ref actual), configuration.LoadTrayPolicy());
+    public ServiceSnapshot Snapshot() => new(configuration.Load(), Volatile.Read(ref actual));
 
     public DesiredConfiguration Update(string command, DesiredConfiguration input)
     {
@@ -46,13 +46,6 @@ internal sealed class ReconciliationCoordinator : BackgroundService
         Signal();
         return updated;
     }
-
-    /// <summary>
-    /// 写入托盘策略。
-    /// 托盘图标由独立进程注册（服务在会话 0 里做不到这件事），服务只负责按这里保存的策略
-    /// 决定要不要拉起它——策略的唯一权威在服务端，面板写、托盘进程只读。
-    /// </summary>
-    public TrayPolicyMode UpdateTrayPolicy(TrayPolicyMode policy) => configuration.UpdateTrayPolicy(policy);
 
     private void Signal()
     {

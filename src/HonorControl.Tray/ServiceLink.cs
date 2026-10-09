@@ -8,7 +8,7 @@ namespace HonorControl.Tray;
 /// <summary>
 /// 与服务之间的连接。
 ///
-/// 托盘是**只读客户端**：只发 GetState / GetTelemetry / ShutdownService 三类请求，
+/// 托盘是**只读客户端**：只发 GetState / GetTelemetry 请求，
 /// 不写任何配置（配置由面板写，托盘不参与，这样归属语义不会因为托盘自启而改变）。
 ///
 /// 每次请求一条新连接、一问一答，与服务端 PipeServer 的实现一致（单行 JSON）。
@@ -53,25 +53,6 @@ internal sealed class ServiceLink
         catch (Exception exception)
         {
             LastError = exception.Message;
-            return false;
-        }
-    }
-
-    /// <summary>
-    /// 请求服务**自己**停止。
-    /// 托盘是中完整性进程，没有也不需要有 SERVICE_STOP 权限——这是"退出托盘 = 停止服务"的实现方式。
-    /// </summary>
-    public bool TryShutdownService(out string? error)
-    {
-        error = null;
-        try
-        {
-            Send("ShutdownService", null);
-            return true;
-        }
-        catch (Exception exception)
-        {
-            error = exception.Message;
             return false;
         }
     }

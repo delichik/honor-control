@@ -1,5 +1,3 @@
-using System.Text.Json.Serialization;
-
 namespace HonorControl.Contracts;
 
 /// <summary>
@@ -8,37 +6,21 @@ namespace HonorControl.Contracts;
 /// 约定：请求与响应都是单行 UTF-8 JSON，字段名 PascalCase（System.Text.Json 默认行为）。
 /// 服务端每个请求有 5 秒超时，请求行上限 4096 字节——因此历史数据必须在服务端降采样后再返回。
 ///
-/// v3 新增硬件传感器和满充容量，并将实际电量、模式与充电阈值改为可空值。
+/// v4 将未采样的供电状态和历史缺口表示为 null，移除服务绑定的托盘策略与自停命令，
+/// 并将服务启停改由 SCM 显式提权。
 /// 面板与服务**同步发布**，不保留旧协议兼容分支。
 /// </summary>
 public static class ServiceContract
 {
     public const string PipeName = "HonorControl.Service.v1";
-    public const int ProtocolVersion = 3;
-}
-
-/// <summary>
-/// 托盘进程的拉起策略。序列化为字符串（"Off"/"OnDemand"/"Always"），与面板一致。
-/// </summary>
-[JsonConverter(typeof(JsonStringEnumConverter))]
-public enum TrayPolicyMode
-{
-    /// <summary>不要托盘：服务不拉起，已运行的托盘进程自行退出。</summary>
-    Off,
-
-    /// <summary>按需：只在用户打开面板时由面板拉起（默认）。</summary>
-    OnDemand,
-
-    /// <summary>常驻：登录后由服务拉起。</summary>
-    Always
+    public const int ProtocolVersion = 4;
 }
 
 public sealed record DesiredConfiguration(
     int? ChargeStart = null,
     int? ChargeEnd = null,
     int? PerformanceMode = null,
-    bool AutoReconcile = false,
-    TrayPolicyMode? TrayPolicy = null);
+    bool AutoReconcile = false);
 
 public sealed record ActualState(
     int? ChargeStart = null,
@@ -56,7 +38,7 @@ public sealed record ActualState(
     string? ServiceError = null,
     DateTimeOffset? CheckedAt = null);
 
-public sealed record ServiceSnapshot(DesiredConfiguration Desired, ActualState Actual, TrayPolicyMode TrayPolicy = TrayPolicyMode.OnDemand);
+public sealed record ServiceSnapshot(DesiredConfiguration Desired, ActualState Actual);
 
 /// <summary>
 /// 一个温度传感器读数。Id 由服务端定义且必须稳定（面板用它做 DOM 重建的缓存键）。
@@ -74,7 +56,7 @@ public sealed record FanReading(string Id, string Label, double Rpm, double? Max
 /// </summary>
 public sealed record Telemetry(
     DateTimeOffset CheckedAt,
-    bool PluggedIn,
+    bool? PluggedIn,
     double? BatteryPercent,
     double? BatteryTemperatureC = null,
     double? BatteryPowerW = null,
@@ -108,10 +90,10 @@ public sealed record Capabilities(
 public sealed record HistoryQuery(string Metric, string Range, int Points = 0);
 
 /// <summary>
-/// 历史序列：**等间隔的数值数组**（不带时间戳）+ 区间小时数。
+/// 历史序列：**等间隔的数值数组**（不带时间戳，未记录的点为 null）+ 区间小时数。
 /// 面板用 hours / Samples.Count 求 dt 做 Wh 积分，因此两者必须同时给出。
 /// </summary>
-public sealed record HistorySeries(string Metric, string Range, double Hours, IReadOnlyList<double> Samples);
+public sealed record HistorySeries(string Metric, string Range, double Hours, IReadOnlyList<double?> Samples);
 
 public sealed record ServiceRequest(
     int Version,

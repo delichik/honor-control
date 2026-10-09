@@ -2,7 +2,6 @@ import { useState } from 'react'
 import { SectionCard } from '../components/SectionCard.jsx'
 import { HistoryChart } from '../components/HistoryChart.jsx'
 import { SelectorBar, StatCard } from '../components/Controls.jsx'
-import { MockBadge } from '../components/MockBadge.jsx'
 import { HISTORY_RANGES } from '../data/contract.js'
 import { summarizeSeries } from '../data/derive.js'
 import { useHistory } from '../data/queries.js'
@@ -17,15 +16,11 @@ import { useHistory } from '../data/queries.js'
  */
 const LOAD_COLOR = 'var(--colorPaletteMarigoldBorderActive)'
 
-const SIMULATED_REASON =
-  '服务未连接或历史数据不足，这两条曲线由前端的模拟模型生成，不代表真实硬件（适配器功率需要 0x0902 电压 × 0x10902/0x110902 电流，尚未在真机验证）。'
-
 /**
  * 功耗历史（设计稿 L1304–L1328）。
  *
- * 两条序列共用一条横轴：适配器输出功率（实线 + 填充）与系统负载（虚线）。
- * 系统负载是**派生值**（适配器功率 − 充入电池的功率），口径见 data/derive.js，
- * 与服务端保持一致，避免与首页的实时值出现两个数字。
+ * 两条历史序列都由服务记录并查询。服务目前无法读取适配器功率；系统负载只在电池供电时可由真实电池功率得到，
+ * 其余时间桶留空，面板不补造曲线或统计值。
  *
  * 排版照抄设计稿：第一行右对齐的时间范围分段控件，第二行整宽的曲线卡
  * （头右侧是两个色块图例），第三行是三个各跨 4 列的统计块。
@@ -37,11 +32,23 @@ export function PowerHistoryPage() {
   const adapter = useHistory('adapterPower', range)
   const load = useHistory('systemLoad', range)
 
-  // 适配器序列决定点数，负载序列按同一长度对齐（服务端返回等长序列）
-  const length = Math.min(adapter.samples.length, load.samples.length)
-  const adapterSamples = adapter.samples.slice(0, length)
-  const loadSamples = load.samples.slice(0, length)
-  const simulated = adapter.simulated || load.simulated
+  const adapterSamples = adapter.samples
+  const loadSamples = load.samples
+  const adapterCount = adapterSamples.filter(Number.isFinite).length
+  const loadCount = loadSamples.filter(Number.isFinite).length
+  const hasData = adapterCount >= 2 || loadCount >= 2
+  const adapterComplete = adapterSamples.length > 0 && adapterSamples.every(Number.isFinite)
+  const historyMessage = adapter.isLoading || load.isLoading
+    ? '读取中…'
+    : !adapter.serviceReachable || !load.serviceReachable
+      ? '服务未连接'
+      : adapter.error || load.error
+        ? '读取失败'
+        : !hasData
+          ? '暂无记录'
+          : adapterComplete
+            ? null
+            : '记录有缺口'
 
   const adapterStats = summarizeSeries(adapterSamples, adapter.hours)
 
@@ -60,26 +67,25 @@ export function PowerHistoryPage() {
         span={12}
         icon="chart"
         title="电源功率与系统负载"
+        note={historyMessage}
         actions={
-          <>
-            {simulated ? <MockBadge reason={SIMULATED_REASON} /> : null}
-            <div className="hc-chart-key">
-              <span style={{ color: 'var(--accent)' }}>
-                <i />
-                电源功率
-              </span>
-              <span style={{ color: LOAD_COLOR }}>
-                <i />
-                系统负载
-              </span>
-            </div>
-          </>
+          <div className="hc-chart-key">
+            <span style={{ color: 'var(--accent)' }}>
+              <i />
+              电源功率
+            </span>
+            <span style={{ color: LOAD_COLOR }}>
+              <i />
+              系统负载
+            </span>
+          </div>
         }
       >
         <HistoryChart
           hours={adapter.hours}
           yDomain={[0, 'auto']}
           height={300}
+          emptyMessage={historyMessage ?? '暂无记录'}
           series={[
             {
               key: 'adapterPower',
@@ -99,9 +105,9 @@ export function PowerHistoryPage() {
         />
       </SectionCard>
 
-      <StatCard span={4} label="电源功率峰值" value={adapterStats.peak.toFixed(0)} unit="W" />
-      <StatCard span={4} label="电源功率平均" value={adapterStats.average.toFixed(0)} unit="W" />
-      <StatCard span={4} label="累计取电" value={adapterStats.wh.toFixed(0)} unit="Wh" />
+      <StatCard span={4} label="电源功率峰值" value={adapterComplete ? adapterStats.peak.toFixed(0) : '—'} unit={adapterComplete ? 'W' : null} />
+      <StatCard span={4} label="电源功率平均" value={adapterComplete ? adapterStats.average.toFixed(0) : '—'} unit={adapterComplete ? 'W' : null} />
+      <StatCard span={4} label="累计取电" value={adapterComplete ? adapterStats.wh.toFixed(0) : '—'} unit={adapterComplete ? 'Wh' : null} />
     </>
   )
 }

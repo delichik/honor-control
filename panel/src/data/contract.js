@@ -1,5 +1,5 @@
 /**
- * 与服务（命名管道 \\.\pipe\HonorControl.Service.v1）的通信契约，v3。
+ * 与服务（命名管道 \\.\pipe\HonorControl.Service.v1）的通信契约，v4。
  *
  * 约定（与服务端 .NET 8 实现一致，改动前必须两边同步）：
  * - 请求与响应都是**单行** UTF-8 JSON，以 \n 结束；一次连接只跑一问一答。
@@ -11,14 +11,14 @@
  * 服务拿不到的指标由 data/mock 补齐，详见 data/mock/sources.js。
  */
 
-export const PROTOCOL_VERSION = 3
+export const PROTOCOL_VERSION = 4
 
 /** 与服务端 ServiceContract.PipeName 保持一致。 */
 export const PIPE_NAME = String.raw`\\.\pipe\HonorControl.Service.v1`
 
 /**
  * 服务端 PipeServer.Execute 支持的命令。
- * 这是 v3 的完整命令集：服务端与面板同步发布，不保留旧版本分支。
+ * 这是 v4 的完整命令集：服务端与面板同步发布，不保留旧版本分支。
  */
 export const COMMANDS = {
   GetState: 'GetState',
@@ -28,23 +28,17 @@ export const COMMANDS = {
   SetCharge: 'SetCharge',
   SetPerformance: 'SetPerformance',
   SetAutoReconcile: 'SetAutoReconcile',
-  SetTrayPolicy: 'SetTrayPolicy',
-  ShutdownService: 'ShutdownService',
-}
-
-/** 托盘拉起策略（服务侧持久化，托盘进程只读）。 */
-export const TRAY_POLICY = {
-  Off: 'Off',
-  OnDemand: 'OnDemand',
-  Always: 'Always',
 }
 
 /** 历史曲线的可选时间范围，与服务端支持的范围一致。 */
 export const HISTORY_RANGES = [
-  { id: '1h', label: '1 小时', hours: 1, points: 180 },
+  { id: '1h', label: '1 小时', hours: 1, points: 60 },
   { id: '24h', label: '24 小时', hours: 24, points: 240 },
   { id: '7d', label: '7 天', hours: 168, points: 300 },
 ]
+
+/** 首页最近一分钟也从服务端内存采样环读取，面板不自行收集历史点。 */
+export const RECENT_HISTORY_RANGE = { id: '1m', label: '最近 60 秒', hours: 1 / 60, points: 60 }
 
 export const HISTORY_METRICS = {
   batteryPower: 'BatteryPower',
@@ -77,11 +71,11 @@ export const POWER_EPSILON_W = 0.6
  * @property {string} Id
  * @property {string} Label
  * @property {number} Rpm
- * @property {number} MaxRpm      用于转速占比与曲线纵轴
+ * @property {number|null} MaxRpm 额定上限未知时为空
  *
  * @typedef {Object} Telemetry
  * @property {string}  CheckedAt                采样时间（ISO 8601）
- * @property {boolean} PluggedIn                是否接入适配器
+ * @property {boolean|null} PluggedIn           是否接入适配器
  * @property {number|null} BatteryPercent        电量百分比
  * @property {number|null} BatteryTemperatureC  电池温度：服务当前无来源 → 示例数据
  * @property {number|null} BatteryPowerW        电池功率，带符号（正=充入，负=放出）
@@ -122,7 +116,6 @@ export const POWER_EPSILON_W = 0.6
  * @typedef {Object} ServiceSnapshot
  * @property {DesiredConfiguration} Desired
  * @property {ActualState} Actual
- * @property {string} [TrayPolicy]
  * @property {string} [ServiceVersion]
  */
 
@@ -130,15 +123,15 @@ export const POWER_EPSILON_W = 0.6
 export function emptyTelemetry() {
   return {
     CheckedAt: new Date().toISOString(),
-    PluggedIn: false,
-    BatteryPercent: 0,
+    PluggedIn: null,
+    BatteryPercent: null,
     BatteryTemperatureC: null,
     BatteryPowerW: null,
     AdapterPowerW: null,
     SystemLoadW: null,
-    PerformanceMode: 1,
-    ChargeStartPercent: 40,
-    ChargeStopPercent: 70,
+    PerformanceMode: null,
+    ChargeStartPercent: null,
+    ChargeStopPercent: null,
     BatteryHealthPercent: null,
     BatteryDesignCapacityWh: null,
     BatteryFullChargeCapacityWh: null,

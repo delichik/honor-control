@@ -92,47 +92,88 @@ internal sealed class HardwareSensorReader : IDisposable
         {
             if (!failedHardwareIds.Contains(hardware.Identifier.ToString()))
             {
-                foreach (ISensor sensor in hardware.Sensors)
+                if (hardware.HardwareType == HardwareType.Storage)
                 {
-                    if (sensor.Value is not float value || !float.IsFinite(value)) continue;
+                    ISensor? primaryTemperature = null;
+                    double? warningTemperature = null;
+                    double? criticalTemperature = null;
 
-                    if (hardware.HardwareType == HardwareType.Battery)
+                    foreach (ISensor sensor in hardware.Sensors)
                     {
+                        if (sensor.SensorType != SensorType.Temperature || sensor.Value is not float value || !float.IsFinite(value))
+                            continue;
+
+                        if (sensor.Name.Contains("Critical", StringComparison.OrdinalIgnoreCase) ||
+                            sensor.Name.Contains("Crit", StringComparison.OrdinalIgnoreCase))
+                        {
+                            if (value > 0 && value <= 150) criticalTemperature = value;
+                        }
+                        else if (sensor.Name.Contains("Warning", StringComparison.OrdinalIgnoreCase) ||
+                                 sensor.Name.Contains("Warn", StringComparison.OrdinalIgnoreCase))
+                        {
+                            if (value > 0 && value <= 150) warningTemperature = value;
+                        }
+                        else if (!sensor.Name.Contains("Threshold", StringComparison.OrdinalIgnoreCase) &&
+                                 (primaryTemperature == null || StorageTemperaturePriority(sensor.Name) < StorageTemperaturePriority(primaryTemperature.Name)))
+                        {
+                            primaryTemperature = sensor;
+                        }
+                    }
+
+                    if (primaryTemperature?.Value is float temperature && float.IsFinite(temperature))
+                    {
+                        temperatures.Add(new SensorReading(
+                            hardware.Identifier.ToString(),
+                            string.IsNullOrWhiteSpace(hardware.Name) ? "硬盘" : hardware.Name,
+                            temperature,
+                            warningTemperature,
+                            criticalTemperature));
+                    }
+                }
+                else
+                {
+                    foreach (ISensor sensor in hardware.Sensors)
+                    {
+                        if (sensor.Value is not float value || !float.IsFinite(value)) continue;
+
+                        if (hardware.HardwareType == HardwareType.Battery)
+                        {
+                            if (sensor.SensorType == SensorType.Temperature &&
+                                sensor.Name.Contains("Temperature", StringComparison.OrdinalIgnoreCase))
+                            {
+                                batteryTemperatureC = value;
+                            }
+                            else if (sensor.SensorType == SensorType.Energy)
+                            {
+                                // Windows BATTERY_INFORMATION reports capacities in mWh.
+                                if (sensor.Name.Equals("Designed Capacity", StringComparison.OrdinalIgnoreCase))
+                                    designedCapacityWh = value / 1000.0;
+                                else if (sensor.Name.Equals("Fully-Charged Capacity", StringComparison.OrdinalIgnoreCase))
+                                    fullChargeCapacityWh = value / 1000.0;
+                            }
+                            continue;
+                        }
+
+                        string id = sensor.Identifier.ToString();
+                        string label = string.IsNullOrWhiteSpace(hardware.Name) || hardware.Name == sensor.Name
+                            ? sensor.Name
+                            : $"{hardware.Name} · {sensor.Name}";
+
                         if (sensor.SensorType == SensorType.Temperature &&
-                            sensor.Name.Contains("Temperature", StringComparison.OrdinalIgnoreCase))
+                            (sensor.Name.Contains("Battery", StringComparison.OrdinalIgnoreCase) ||
+                             hardware.Name.Contains("Battery", StringComparison.OrdinalIgnoreCase)))
                         {
                             batteryTemperatureC = value;
                         }
-                        else if (sensor.SensorType == SensorType.Energy)
+                        else if (sensor.SensorType == SensorType.Temperature)
                         {
-                            // Windows BATTERY_INFORMATION reports capacities in mWh.
-                            if (sensor.Name.Equals("Designed Capacity", StringComparison.OrdinalIgnoreCase))
-                                designedCapacityWh = value / 1000.0;
-                            else if (sensor.Name.Equals("Fully-Charged Capacity", StringComparison.OrdinalIgnoreCase))
-                                fullChargeCapacityWh = value / 1000.0;
+                            temperatures.Add(new SensorReading(id, label, value));
                         }
-                        continue;
-                    }
-
-                    string id = sensor.Identifier.ToString();
-                    string label = string.IsNullOrWhiteSpace(hardware.Name) || hardware.Name == sensor.Name
-                        ? sensor.Name
-                        : $"{hardware.Name} · {sensor.Name}";
-
-                    if (sensor.SensorType == SensorType.Temperature &&
-                        (sensor.Name.Contains("Battery", StringComparison.OrdinalIgnoreCase) ||
-                         hardware.Name.Contains("Battery", StringComparison.OrdinalIgnoreCase)))
-                    {
-                        batteryTemperatureC = value;
-                    }
-                    else if (sensor.SensorType == SensorType.Temperature)
-                    {
-                        temperatures.Add(new SensorReading(id, label, value));
-                    }
-                    else if (sensor.SensorType == SensorType.Fan && value >= 0)
-                    {
-                        // LibreHardwareMonitor reports the current RPM, but not a rated maximum.
-                        fans.Add(new FanReading(id, label, value, MaxRpm: null));
+                        else if (sensor.SensorType == SensorType.Fan && value >= 0)
+                        {
+                            // LibreHardwareMonitor reports the current RPM, but not a rated maximum.
+                            fans.Add(new FanReading(id, label, value, MaxRpm: null));
+                        }
                     }
                 }
             }
@@ -148,6 +189,14 @@ internal sealed class HardwareSensorReader : IDisposable
             fullChargeCapacityWh,
             temperatures,
             fans);
+    }
+
+    private static int StorageTemperaturePriority(string sensorName)
+    {
+        if (sensorName.Equals("Composite Temperature", StringComparison.OrdinalIgnoreCase)) return 0;
+        if (sensorName.Equals("Temperature", StringComparison.OrdinalIgnoreCase)) return 1;
+        if (sensorName.Equals("Temperature Sensor 1", StringComparison.OrdinalIgnoreCase)) return 2;
+        return 3;
     }
 
     public void Dispose()

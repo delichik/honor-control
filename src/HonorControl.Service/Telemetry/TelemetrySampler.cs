@@ -35,7 +35,7 @@ internal sealed class TelemetrySampler : BackgroundService
     private readonly ILogger<TelemetrySampler> logger;
     private readonly HardwareSensorReader hardware;
 
-    private TelemetrySnapshot current = new(DateTimeOffset.Now, false, null);
+    private TelemetrySnapshot current = new(DateTimeOffset.Now, null, null);
     private ServiceSnapshot? snapshot;
     private DateTimeOffset snapshotReadAt = DateTimeOffset.MinValue;
     private int? cycleCount;
@@ -77,7 +77,9 @@ internal sealed class TelemetrySampler : BackgroundService
         {
             try
             {
-                Volatile.Write(ref current, Sample());
+                TelemetrySnapshot sample = Sample();
+                Volatile.Write(ref current, sample);
+                history.RecordRecent(sample);
                 if (!loggedCapabilities)
                 {
                     logger.LogInformation("遥测采样器启动。能力：{Supports}", string.Join(", ",
@@ -85,7 +87,7 @@ internal sealed class TelemetrySampler : BackgroundService
                     loggedCapabilities = true;
                 }
                 // 每 60 个采样落一次盘（历史曲线的粒度就是 60 秒）
-                if (++tick % 60 == 0) history.Append(current);
+                if (++tick % 60 == 0) history.Append(sample);
             }
             catch (Exception exception)
             {

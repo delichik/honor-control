@@ -134,21 +134,3 @@ export function simulateTelemetry(tMs = Date.now(), { maxRpm = 6000 } = {}) {
     ServiceError: null,
   }
 }
-
-/**
- * 用同一个模型合成历史序列。
- *
- * 服务端接上采样器以后，这里换成 GetHistory 的返回值即可；曲线的点数、间隔与
- * "Wh 积分用 hours/len 求 dt"的口径都保持不变（见 data/derive.js）。
- */
-export function simulateHistory(metric, hours, points, tMs = Date.now()) {
-  const stepMs = (hours * 3600 * 1000) / Math.max(1, points - 1)
-  const samples = []
-  for (let i = 0; i < points; i += 1) {
-    const t = (tMs - (points - 1 - i) * stepMs) / 1000
-    if (metric === 'batteryPower') samples.push(batteryPowerWAt(t))
-    else if (metric === 'adapterPower') samples.push(adapterPowerWAt(t))
-    else samples.push(systemLoadWAt(t))
-  }
-  return samples
-}
