@@ -23,7 +23,12 @@ export function BatteryGauge({
   const innerRef = useRef(null)
   const [dragging, setDragging] = useState(null)
 
-  const soc = Math.min(100, Math.max(0, percent ?? 0))
+  const hasPercent = typeof percent === 'number' && Number.isFinite(percent)
+  const hasWindow =
+    typeof startPercent === 'number' && Number.isFinite(startPercent) &&
+    typeof stopPercent === 'number' && Number.isFinite(stopPercent)
+  const canEdit = interactive && hasWindow
+  const soc = Math.min(100, Math.max(0, hasPercent ? percent : 0))
   const start = Math.min(100, Math.max(0, startPercent ?? 0))
   const stop = Math.min(100, Math.max(0, stopPercent ?? 100))
   const windowWidth = Math.max(0, stop - start)
@@ -38,7 +43,7 @@ export function BatteryGauge({
   }, [])
 
   const handlePointerDown = (event) => {
-    if (!interactive) return
+    if (!canEdit) return
     const value = percentAt(event.clientX)
     if (value === null) return
     // 选离指针更近的标记，避免两个标记挨在一起时抢焦点
@@ -77,34 +82,36 @@ export function BatteryGauge({
             onPointerUp={handlePointerUp}
             onPointerCancel={handlePointerUp}
             role="img"
-            aria-label={`当前电量 ${Math.round(soc)}%，充电窗口 ${start}% 到 ${stop}%`}
+            aria-label={`${hasPercent ? `当前电量 ${Math.round(soc)}%` : '当前电量未知'}${hasWindow ? `，充电窗口 ${start}% 到 ${stop}%` : '，充电阈值未知'}`}
           >
-            <div className="hc-soc-fill" data-tone={fillTone} style={{ width: `${soc}%` }} />
-            <div
-              className="hc-bat-window"
-              style={{ left: `${start}%`, width: `${windowWidth}%` }}
-              hidden={windowWidth <= 0}
-            />
-
-            <div
-              className={interactive ? 'hc-marker hc-marker--start hc-marker--interactive' : 'hc-marker hc-marker--start'}
-              style={{ left: `${start}%` }}
-              data-drag={dragging === 'start' ? 'true' : undefined}
-            >
-              <span className="hc-flag hc-flag--start" data-edge={edgeFor(start)}>
-                开始充电 {start}%
-              </span>
-            </div>
-
-            <div
-              className={interactive ? 'hc-marker hc-marker--stop hc-marker--interactive' : 'hc-marker hc-marker--stop'}
-              style={{ left: `${stop}%` }}
-              data-drag={dragging === 'stop' ? 'true' : undefined}
-            >
-              <span className="hc-flag hc-flag--stop hc-flag--up" data-edge={edgeFor(stop)}>
-                停止充电 {stop}%
-              </span>
-            </div>
+            {hasPercent ? <div className="hc-soc-fill" data-tone={fillTone} style={{ width: `${soc}%` }} /> : null}
+            {hasWindow ? (
+              <>
+                <div
+                  className="hc-bat-window"
+                  style={{ left: `${start}%`, width: `${windowWidth}%` }}
+                  hidden={windowWidth <= 0}
+                />
+                <div
+                  className={canEdit ? 'hc-marker hc-marker--start hc-marker--interactive' : 'hc-marker hc-marker--start'}
+                  style={{ left: `${start}%` }}
+                  data-drag={dragging === 'start' ? 'true' : undefined}
+                >
+                  <span className="hc-flag hc-flag--start" data-edge={edgeFor(start)}>
+                    开始充电 {start}%
+                  </span>
+                </div>
+                <div
+                  className={canEdit ? 'hc-marker hc-marker--stop hc-marker--interactive' : 'hc-marker hc-marker--stop'}
+                  style={{ left: `${stop}%` }}
+                  data-drag={dragging === 'stop' ? 'true' : undefined}
+                >
+                  <span className="hc-flag hc-flag--stop hc-flag--up" data-edge={edgeFor(stop)}>
+                    停止充电 {stop}%
+                  </span>
+                </div>
+              </>
+            ) : null}
           </div>
           <div className="hc-battery-pole" />
         </div>

@@ -56,6 +56,7 @@ export function AboutPage() {
   const sensors = telemetry.Sensors ?? []
   const fans = telemetry.Fans ?? []
   const designCapacityWh = telemetry.BatteryDesignCapacityWh
+  const fullChargeCapacityWh = telemetry.BatteryFullChargeCapacityWh
   const cycleCount = telemetry.BatteryCycleCount
 
   return (
@@ -74,6 +75,13 @@ export function AboutPage() {
             <SettingValue>
               <MockableValue field="BatteryDesignCapacityWh" mocked={mockFields.includes('BatteryDesignCapacityWh')}>
                 {designCapacityWh ? `${Number(designCapacityWh).toFixed(1)} Wh` : '—'}
+              </MockableValue>
+            </SettingValue>
+          </SettingRow>
+          <SettingRow title="电池满充容量">
+            <SettingValue>
+              <MockableValue field="BatteryFullChargeCapacityWh" mocked={mockFields.includes('BatteryFullChargeCapacityWh')}>
+                {typeof fullChargeCapacityWh === 'number' ? `${fullChargeCapacityWh.toFixed(1)} Wh` : '—'}
               </MockableValue>
             </SettingValue>
           </SettingRow>

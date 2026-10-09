@@ -12,9 +12,14 @@
     <PackageReference Include="Microsoft.Management.Infrastructure" Version="3.0.0" />
     <PackageReference Include="System.IO.Pipes.AccessControl" Version="5.0.0" />
     <PackageReference Include="System.IO.FileSystem.AccessControl" Version="5.0.0" />
+    <PackageReference Include="LibreHardwareMonitorLib" Version="0.9.6" />
     <ProjectReference Include="..\HonorControl.Contracts\HonorControl.Contracts.csproj" />
   </ItemGroup>
   <ItemGroup>
     <Compile Include="..\HonorControl\Models\*.cs" Link="Models\%(Filename)%(Extension)" />
+  </ItemGroup>
+  <ItemGroup>
+    <None Include="..\..\THIRD-PARTY-NOTICES.md" Link="THIRD-PARTY-NOTICES.md"
+          CopyToOutputDirectory="PreserveNewest" CopyToPublishDirectory="PreserveNewest" />
   </ItemGroup>
 </Project>

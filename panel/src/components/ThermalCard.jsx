@@ -5,7 +5,6 @@ import { FanRotor } from './FanRotor.jsx'
 import { ModeBar } from './ModeBar.jsx'
 import { MockBadge } from './MockBadge.jsx'
 import { temperatureTone } from '../data/derive.js'
-import { FAN_MAX_RPM } from '../data/fanCurve.js'
 
 /**
  * 性能与散热卡。
@@ -61,7 +60,7 @@ export function ThermalCard({ telemetry, mockFields = [], performanceMode = 1 })
       {fans.length > 0 ? (
         <div className="hc-fan-row">
           {fans.map((fan) => (
-            <FanRotor key={fan.Id} label={fan.Label} rpm={fan.Rpm} maxRpm={fan.MaxRpm ?? FAN_MAX_RPM} />
+            <FanRotor key={fan.Id} label={fan.Label} rpm={fan.Rpm} maxRpm={fan.MaxRpm} />
           ))}
         </div>
       ) : null}

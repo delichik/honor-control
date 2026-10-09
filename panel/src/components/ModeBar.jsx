@@ -8,9 +8,10 @@ import { SelectorBar } from './Controls.jsx'
  * 而那是要写固件的操作。
  */
 export function ModeBar({ mode }) {
+  const label = mode === 2 ? '高性能' : mode === 1 ? '智能' : '未知'
   return (
     <SelectorBar
-      ariaLabel={`当前性能模式：${mode === 2 ? '高性能' : '智能'}`}
+      ariaLabel={`当前性能模式：${label}`}
       value={mode}
       items={[
         { id: 1, label: '智能', icon: 'sparkle' },

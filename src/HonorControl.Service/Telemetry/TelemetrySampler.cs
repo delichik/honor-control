@@ -33,12 +33,17 @@ internal sealed class TelemetrySampler : BackgroundService
     private readonly BatteryService battery = new();
     private readonly HistoryStore history;
     private readonly ILogger<TelemetrySampler> logger;
+    private readonly HardwareSensorReader hardware;
 
-    private TelemetrySnapshot current = new(DateTimeOffset.Now, false, 0);
+    private TelemetrySnapshot current = new(DateTimeOffset.Now, false, null);
     private ServiceSnapshot? snapshot;
     private DateTimeOffset snapshotReadAt = DateTimeOffset.MinValue;
     private int? cycleCount;
     private DateTimeOffset cycleCountReadAt = DateTimeOffset.MinValue;
+    private bool cycleCountSupported;
+    private HardwareSensorSnapshot hardwareSnapshot = HardwareSensorSnapshot.Empty;
+    private Capabilities capabilities = new(null, null,
+        new Dictionary<string, bool>(), new Dictionary<string, string>());
 
     public TelemetrySampler(
         ReconciliationCoordinator coordinator,
@@ -48,6 +53,7 @@ internal sealed class TelemetrySampler : BackgroundService
         this.coordinator = coordinator;
         this.history = history;
         this.logger = logger;
+        hardware = new HardwareSensorReader(logger);
         Capabilities = ProbeCapabilities();
     }
 
@@ -55,19 +61,29 @@ internal sealed class TelemetrySampler : BackgroundService
     public TelemetrySnapshot Current => Volatile.Read(ref current);
 
     /// <summary>服务自己探测出的能力清单。</summary>
-    public Capabilities Capabilities { get; }
+    public Capabilities Capabilities
+    {
+        get => Volatile.Read(ref capabilities);
+        private set => Volatile.Write(ref capabilities, value);
+    }
 
     protected override async Task ExecuteAsync(CancellationToken stoppingToken)
     {
-        logger.LogInformation("遥测采样器启动。能力：{Supports}", string.Join(", ",
-            Capabilities.Supports.Select(pair => $"{pair.Key}={(pair.Value ? "可用" : "不可用")}")));
+        await Task.Yield();
 
         int tick = 0;
+        bool loggedCapabilities = false;
         while (!stoppingToken.IsCancellationRequested)
         {
             try
             {
                 Volatile.Write(ref current, Sample());
+                if (!loggedCapabilities)
+                {
+                    logger.LogInformation("遥测采样器启动。能力：{Supports}", string.Join(", ",
+                        Capabilities.Supports.Select(pair => $"{pair.Key}={(pair.Value ? "可用" : "不可用")}")));
+                    loggedCapabilities = true;
+                }
                 // 每 60 个采样落一次盘（历史曲线的粒度就是 60 秒）
                 if (++tick % 60 == 0) history.Append(current);
             }
@@ -90,6 +106,7 @@ internal sealed class TelemetrySampler : BackgroundService
     private TelemetrySnapshot Sample()
     {
         DateTimeOffset now = DateTimeOffset.Now;
+        hardwareSnapshot = hardware.Read();
 
         if (now - snapshotReadAt >= SnapshotRefreshInterval)
         {
@@ -114,44 +131,34 @@ internal sealed class TelemetrySampler : BackgroundService
         double? systemLoadW = !reading.PluggedIn && reading.PowerW.HasValue
             ? Math.Abs(Math.Min(0, reading.PowerW.Value))
             : null;
+        double? fullChargeWh = hardwareSnapshot.BatteryFullChargeCapacityWh ?? reading.FullChargeWh;
+        double? batteryHealth = hardwareSnapshot.BatteryDesignCapacityWh is > 0 && fullChargeWh is > 0
+            ? fullChargeWh.Value / hardwareSnapshot.BatteryDesignCapacityWh.Value * 100.0
+            : null;
+        Capabilities = BuildCapabilities(cycleCountSupported, hardwareSnapshot, fullChargeWh.HasValue);
 
         return new TelemetrySnapshot(
             CheckedAt: now,
             PluggedIn: reading.PluggedIn,
-            BatteryPercent: reading.Percent ?? actual.BatteryPercent ?? 0,
-            BatteryTemperatureC: null,
+            BatteryPercent: reading.Percent ?? actual.BatteryPercent,
+            BatteryTemperatureC: hardwareSnapshot.BatteryTemperatureC,
             BatteryPowerW: reading.PowerW,
             AdapterPowerW: null,
             SystemLoadW: systemLoadW,
-            PerformanceMode: actual.PerformanceMode ?? snapshot?.Desired.PerformanceMode ?? 1,
-            ChargeStartPercent: actual.ChargeStart ?? snapshot?.Desired.ChargeStart ?? 0,
-            ChargeStopPercent: actual.ChargeEnd ?? snapshot?.Desired.ChargeEnd ?? 100,
-            BatteryHealthPercent: null,
-            BatteryDesignCapacityWh: null,
+            PerformanceMode: actual.PerformanceMode,
+            ChargeStartPercent: actual.ChargeStart,
+            ChargeStopPercent: actual.ChargeEnd,
+            BatteryHealthPercent: batteryHealth,
+            BatteryDesignCapacityWh: hardwareSnapshot.BatteryDesignCapacityWh,
+            BatteryFullChargeCapacityWh: fullChargeWh,
             BatteryCycleCount: cycleCount,
-            Sensors: Array.Empty<SensorReading>(),
-            Fans: Array.Empty<FanReading>(),
+            Sensors: hardwareSnapshot.Sensors,
+            Fans: hardwareSnapshot.Fans,
             PcManagerOpen: actual.PcManagerOpen,
             ChargeError: actual.ChargeError,
             ServiceError: actual.ServiceError);
     }
 
-    /// <summary>
-    /// 能力探测。
-    ///
-    /// 这里的每个 false 都是**实测结论**，不是保守估计：
-    /// - 电池温度：root\wmi 的 BatteryTemperature 类存在但**没有实例**（BCC-N 实测）；
-    /// - 健康度/设计容量：设计容量没有可用来源——BatteryStaticData 无实例，Win32_Battery.DesignCapacity 为空，
-    ///   SYSTEM_BATTERY_STATE.MaxCapacity 其实是**当前满充容量**（实测 92041 mWh = BatteryFullChargedCapacity），
-    ///   拿它当设计容量算健康度会得到恒定的 100%；
-    /// - CPU/GPU/SSD 温度：MSAcpi_ThermalZoneTemperature 不可用、Win32_TemperatureProbe 无实例、
-    ///   SMART（MSStorageDriver_ATAPISmartData）无实例，没有用户态来源；
-    /// - 风扇转速：Win32_Fan 无实例；荣耀通道的 0x0802 语义尚未确认（可能是封装功率），
-    ///   且 OemWMIMethod 只允许 SYSTEM 访问，需要在服务里另做验证；
-    /// - 适配器功率：0x0902 给出的是电压（实测 16400 mV 量级属电池，适配器为 20000 mV），
-    ///   电流命令未确认，因此不报功率；
-    /// - 功耗限制/风扇曲线：写路径未定位 / 需要荣耀内核驱动。
-    /// </summary>
     private Capabilities ProbeCapabilities()
     {
         int? cycles = null;
@@ -164,27 +171,45 @@ internal sealed class TelemetrySampler : BackgroundService
             logger.LogDebug(exception, "读取电池循环次数失败");
         }
 
+        cycleCountSupported = cycles.HasValue;
+        return BuildCapabilities(cycleCountSupported, hardwareSnapshot, battery.Read().FullChargeWh.HasValue);
+    }
+
+    private static Capabilities BuildCapabilities(
+        bool hasCycleCount,
+        HardwareSensorSnapshot readings,
+        bool hasFullChargeCapacity)
+    {
         Dictionary<string, string> missing = new()
         {
-            ["BatteryTemperature"] = "root\\wmi 的 BatteryTemperature 类在本机存在但没有实例，固件未暴露电池温度。",
-            ["BatteryHealth"] = "设计容量没有可用来源（BatteryStaticData 无实例、Win32_Battery.DesignCapacity 为空）。",
-            ["AdapterPower"] = "0x0902 只给出适配器电压，电流命令尚未确认，因此不报适配器功率。",
-            ["Sensors"] = "未找到 CPU/GPU/SSD 温度的用户态来源（ACPI 热区、Win32_TemperatureProbe、SMART 均无实例）。",
-            ["Fans"] = "Win32_Fan 无实例；荣耀通道 0x0802 的语义未确认，确认前不能当转速用。",
+            ["BatteryTemperature"] = readings.BatteryTemperatureC.HasValue
+                ? string.Empty
+                : "硬件监测库未从此设备返回电池温度。",
+            ["BatteryHealth"] = readings.BatteryDesignCapacityWh.HasValue && hasFullChargeCapacity
+                ? string.Empty
+                : "硬件监测库或 Windows 电池接口未返回设计容量与满充容量。",
+            ["AdapterPower"] = "荣耀适配器电流读取路径尚未接入；当前不能给出真实适配器功率。",
+            ["Sensors"] = readings.Sensors.Count > 0
+                ? string.Empty
+                : "LibreHardwareMonitor 未从此设备返回温度传感器。",
+            ["Fans"] = readings.Fans.Count > 0
+                ? string.Empty
+                : "LibreHardwareMonitor 未从此设备返回风扇转速。",
             ["PowerLimits"] = "功耗墙的写入路径尚未定位。",
-            ["FanCurve"] = "风扇策略写入需要荣耀内核驱动通道，没有用户态入口。",
+            ["FanCurve"] = "风扇曲线读写路径尚未接入。",
         };
 
         Dictionary<string, bool> supports = new()
         {
             ["BatteryPercent"] = true,
             ["BatteryPower"] = true,
-            ["BatteryCycleCount"] = cycles.HasValue,
-            ["BatteryTemperature"] = false,
-            ["BatteryHealth"] = false,
+            ["BatteryCycleCount"] = hasCycleCount,
+            ["BatteryTemperature"] = readings.BatteryTemperatureC.HasValue,
+            ["BatteryDesignCapacity"] = readings.BatteryDesignCapacityWh.HasValue,
+            ["BatteryHealth"] = readings.BatteryDesignCapacityWh.HasValue && hasFullChargeCapacity,
             ["AdapterPower"] = false,
-            ["Sensors"] = false,
-            ["Fans"] = false,
+            ["Sensors"] = readings.Sensors.Count > 0,
+            ["Fans"] = readings.Fans.Count > 0,
             ["PowerLimits"] = false,
             ["FanCurve"] = false,
             ["History"] = true,
@@ -192,9 +217,14 @@ internal sealed class TelemetrySampler : BackgroundService
 
         return new Capabilities(
             AdapterRatedW: null,
-            // 机型参数，服务端暂时没有来源；面板的风扇界面在 Fans 不可用时不会用到它。
-            FanMaxRpm: 6000,
+            FanMaxRpm: null,
             Supports: supports,
             MissingReason: missing);
+    }
+
+    public override void Dispose()
+    {
+        hardware.Dispose();
+        base.Dispose();
     }
 }

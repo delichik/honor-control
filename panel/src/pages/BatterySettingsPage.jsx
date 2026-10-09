@@ -33,6 +33,7 @@ export function BatterySettingsPage() {
   const [start, setStart] = useState(telemetry.ChargeStartPercent)
   const [stop, setStop] = useState(telemetry.ChargeStopPercent)
   const [dirty, setDirty] = useState(false)
+  const thresholdsAvailable = Number.isFinite(start) && Number.isFinite(stop)
 
   // 服务端状态更新时同步草稿，但用户正在编辑（dirty）时不覆盖他手上的值
   useEffect(() => {
@@ -42,15 +43,18 @@ export function BatterySettingsPage() {
   }, [telemetry.ChargeStartPercent, telemetry.ChargeStopPercent, dirty])
 
   const updateStart = (value) => {
+    if (!thresholdsAvailable) return
     setDirty(true)
     setStart(Math.max(0, Math.min(value, stop - 1)))
   }
   const updateStop = (value) => {
+    if (!thresholdsAvailable) return
     setDirty(true)
     setStop(Math.min(100, Math.max(value, start + 1)))
   }
 
   const apply = () => {
+    if (!thresholdsAvailable) return
     setCharge.mutate(
       { ChargeStart: start, ChargeEnd: stop },
       { onSuccess: () => setDirty(false) },
@@ -82,7 +86,7 @@ export function BatterySettingsPage() {
         title="充电阈值"
         actions={
           <span className="hc-pill" data-tone="accent">
-            充电窗口 {Math.max(0, stop - start)}%
+            {thresholdsAvailable ? `充电窗口 ${Math.max(0, stop - start)}%` : '当前阈值未知'}
           </span>
         }
       >
@@ -91,40 +95,44 @@ export function BatterySettingsPage() {
           startPercent={start}
           stopPercent={stop}
           charging={telemetry.BatteryPowerW > 0.6}
-          interactive
+          interactive={thresholdsAvailable}
           onChangeStart={updateStart}
           onChangeStop={updateStop}
         />
 
-        <div className="hc-thresh-controls">
-          <div className="hc-thresh-row">
-            <span className="hc-lbl">开始充电</span>
-            <Slider
-              min={0}
-              max={99}
-              value={start}
-              onChange={updateStart}
-              format={(value) => `${value}%`}
-            />
+        {thresholdsAvailable ? (
+          <div className="hc-thresh-controls">
+            <div className="hc-thresh-row">
+              <span className="hc-lbl">开始充电</span>
+              <Slider
+                min={0}
+                max={99}
+                value={start}
+                onChange={updateStart}
+                format={(value) => `${value}%`}
+              />
+            </div>
+            <div className="hc-thresh-row">
+              <span className="hc-lbl">停止充电</span>
+              <Slider
+                min={1}
+                max={100}
+                value={stop}
+                onChange={updateStop}
+                format={(value) => `${value}%`}
+              />
+            </div>
           </div>
-          <div className="hc-thresh-row">
-            <span className="hc-lbl">停止充电</span>
-            <Slider
-              min={1}
-              max={100}
-              value={stop}
-              onChange={updateStop}
-              format={(value) => `${value}%`}
-            />
-          </div>
-        </div>
+        ) : (
+          <div className="hc-edit-hint">服务未能读取设备当前阈值，读取恢复前不显示或提交默认值。</div>
+        )}
 
         <div className="hc-card-actions">
           <button
             type="button"
             className="hc-btn hc-btn--accent"
             onClick={apply}
-            disabled={!dirty || setCharge.isPending}
+            disabled={!thresholdsAvailable || !dirty || setCharge.isPending}
           >
             {setCharge.isPending ? '正在写入…' : '应用到硬件'}
           </button>
@@ -154,7 +162,7 @@ export function BatterySettingsPage() {
         title="电池保养"
         note="服务暂无对应命令"
         actions={
-          <MockBadge fields={['BatteryHealthPercent', 'BatteryDesignCapacityWh']} />
+          <MockBadge fields={['BatteryHealthPercent', 'BatteryDesignCapacityWh', 'BatteryFullChargeCapacityWh']} />
         }
       >
         <div className="hc-settings">
@@ -174,7 +182,7 @@ export function BatterySettingsPage() {
 
           <SettingRow
             title="电池健康度"
-            desc={`设计容量 ${wh(telemetry.BatteryDesignCapacityWh)} · 循环 ${telemetry.BatteryCycleCount ?? '—'} 次`}
+            desc={`设计 ${wh(telemetry.BatteryDesignCapacityWh)} · 满充 ${wh(telemetry.BatteryFullChargeCapacityWh)} · 循环 ${telemetry.BatteryCycleCount ?? '—'} 次`}
           >
             <SettingValue>
               {telemetry.BatteryHealthPercent === null || telemetry.BatteryHealthPercent === undefined

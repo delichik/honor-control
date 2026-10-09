@@ -8,13 +8,13 @@ namespace HonorControl.Contracts;
 /// 约定：请求与响应都是单行 UTF-8 JSON，字段名 PascalCase（System.Text.Json 默认行为）。
 /// 服务端每个请求有 5 秒超时，请求行上限 4096 字节——因此历史数据必须在服务端降采样后再返回。
 ///
-/// v2 相对 v1 的变化：协议版本升到 2，新增遥测、能力探测、历史与托盘策略，
-/// 并新增 owner-only 的 ShutdownService。面板与服务**同步发布**，不保留 v1 兼容分支。
+/// v3 新增硬件传感器和满充容量，并将实际电量、模式与充电阈值改为可空值。
+/// 面板与服务**同步发布**，不保留旧协议兼容分支。
 /// </summary>
 public static class ServiceContract
 {
     public const string PipeName = "HonorControl.Service.v1";
-    public const int ProtocolVersion = 2;
+    public const int ProtocolVersion = 3;
 }
 
 /// <summary>
@@ -64,7 +64,7 @@ public sealed record ServiceSnapshot(DesiredConfiguration Desired, ActualState A
 public sealed record SensorReading(string Id, string Label, double TempC, double? WarnC = null, double? HotC = null);
 
 /// <summary>一个风扇读数。笔记本不区分 CPU/GPU 风扇，数量由能力探测决定。</summary>
-public sealed record FanReading(string Id, string Label, double Rpm, double MaxRpm);
+public sealed record FanReading(string Id, string Label, double Rpm, double? MaxRpm = null);
 
 /// <summary>
 /// 一次实时遥测快照（服务端 1 Hz 采样后缓存，客户端轮询只读缓存，不打 WMI）。
@@ -75,16 +75,17 @@ public sealed record FanReading(string Id, string Label, double Rpm, double MaxR
 public sealed record Telemetry(
     DateTimeOffset CheckedAt,
     bool PluggedIn,
-    double BatteryPercent,
+    double? BatteryPercent,
     double? BatteryTemperatureC = null,
     double? BatteryPowerW = null,
     double? AdapterPowerW = null,
     double? SystemLoadW = null,
-    int PerformanceMode = 1,
-    int ChargeStartPercent = 0,
-    int ChargeStopPercent = 100,
+    int? PerformanceMode = null,
+    int? ChargeStartPercent = null,
+    int? ChargeStopPercent = null,
     double? BatteryHealthPercent = null,
     double? BatteryDesignCapacityWh = null,
+    double? BatteryFullChargeCapacityWh = null,
     int? BatteryCycleCount = null,
     IReadOnlyList<SensorReading>? Sensors = null,
     IReadOnlyList<FanReading>? Fans = null,
@@ -99,7 +100,7 @@ public sealed record Telemetry(
 /// </summary>
 public sealed record Capabilities(
     double? AdapterRatedW,
-    double FanMaxRpm,
+    double? FanMaxRpm,
     IReadOnlyDictionary<string, bool> Supports,
     IReadOnlyDictionary<string, string> MissingReason);
 

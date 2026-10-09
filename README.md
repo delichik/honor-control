@@ -9,7 +9,7 @@ HonorControl.sln
 panel/                              控制面板（React + Fluent UI + Tauri 2；见 panel/README.md）
 src/HonorControl.Tray/              托盘进程（原生 Win32 托盘；每个用户会话一份，普通权限）
 src/HonorControl.Service/           Windows 服务、配置协调、WMI、遥测采样与历史
-src/HonorControl.Contracts/         三个进程之间唯一的版本化通信契约（协议 v2）
+src/HonorControl.Contracts/         三个进程之间唯一的版本化通信契约（协议 v3）
 src/HonorControl/                   旧的 WinUI 3 界面（已被 panel/ 取代，仅作参考保留）
 tools/BatteryProbe、tools/HistoryProbe   只读诊断工具（直接编译服务端源码验证真实读数）
 installer/                          在线安装器与设备/依赖预检

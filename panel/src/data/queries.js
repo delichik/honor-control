@@ -15,7 +15,7 @@ import { useNow } from '../app/useNow.js'
 /**
  * 服务数据统一走这里。
  *
- * 面板与服务按同一份 v2 契约发布：版本不一致时直接报错让用户重装，不做降级兼容。
+ * 面板与服务按同一份 v3 契约发布：版本不一致时直接报错让用户重装，不做降级兼容。
  * 唯一"降级"的是**服务拿不到的指标**——那些由 data/mock 补示例数据（见 5.1 矩阵）。
  *
  * 轮询频率按"服务端很便宜"设计：快照与遥测都只读服务端内存缓存，不打 WMI（可行性文档 5.3）。
@@ -180,7 +180,7 @@ export function useSetAutoReconcile() {
   return useServiceMutation(COMMANDS.SetAutoReconcile)
 }
 
-/** 托盘策略是 v2 命令；服务没升级时写不进去，UI 需要禁用该项。 */
+/** 托盘策略是 v3 命令；服务没升级时写不进去，UI 需要禁用该项。 */
 export function useSetTrayPolicy() {
   return useServiceMutation(COMMANDS.SetTrayPolicy)
 }

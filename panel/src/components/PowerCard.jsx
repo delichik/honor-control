@@ -100,8 +100,8 @@ export function PowerCard({ telemetry, mockFields = [] }) {
         <div className="hc-battery-info">
           <div className="hc-binfo">
             <span className="hc-binfo-v">
-              <b>{Math.round(telemetry.BatteryPercent ?? 0)}</b>
-              <i>%</i>
+              <b>{telemetry.BatteryPercent == null ? '—' : Math.round(telemetry.BatteryPercent)}</b>
+              {telemetry.BatteryPercent == null ? null : <i>%</i>}
             </span>
             <span className="hc-binfo-k">当前电量</span>
           </div>

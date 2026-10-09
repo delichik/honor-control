@@ -45,13 +45,14 @@ export function PerformanceSettingsPage() {
   const setPerformanceMode = useSetPerformanceMode()
   const forceMock = useAppStore((state) => state.forceMock)
 
-  const actualMode = snapshot?.Actual?.PerformanceMode ?? telemetry.PerformanceMode ?? 1
-  const [mode, setMode] = useState(actualMode)
+  const actualMode = snapshot?.Actual?.PerformanceMode ?? telemetry.PerformanceMode ?? null
+  const configuredMode = snapshot?.Desired?.PerformanceMode ?? actualMode ?? 1
+  const [mode, setMode] = useState(configuredMode)
   const [fanMode, setFanMode] = useState('auto')
 
   useEffect(() => {
-    if (!setPerformanceMode.isPending) setMode(actualMode)
-  }, [actualMode, setPerformanceMode.isPending])
+    if (!setPerformanceMode.isPending) setMode(configuredMode)
+  }, [actualMode, configuredMode, setPerformanceMode.isPending])
 
   const profile = exampleModeProfiles(mode)
   const modeLabel = (value) => MODE_CARDS[value]?.label ?? PERFORMANCE_MODES.find((item) => item.id === value)?.label ?? '未知'

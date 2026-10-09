@@ -330,9 +330,15 @@ installer/                   在线安装器 + 依赖预检 + 服务注册/备�
 
 另一个实测发现：**`root\wmi:OemWMIMethod` 对非管理员拒绝访问**（HRESULT 0x80041003）。这意味着能力探测只能由服务自己做（它本来就以 SYSTEM 运行），面板与任何用户态工具都读不到荣耀通道。
 
-据此，服务端 v2 的采样器已经落地：`BatteryService`（电量/功率/容量）+ 1 Hz `TelemetrySampler` + 60 秒粒度 `HistoryStore`，
-并把上面每个 ❌ 写进 `Capabilities.MissingReason` 如实上报——服务不猜、不填估算值。
+据此，服务端采样器已提供 `BatteryService`（电量/功率/满充容量）+ 1 Hz `TelemetrySampler` + 60 秒粒度 `HistoryStore`，
+并把没有读数的字段写进 `Capabilities.MissingReason` 如实上报——服务不猜、不填估算值。
 两个只读诊断工具（`tools/BatteryProbe`、`tools/HistoryProbe`）直接编译服务端源码来验证真实读数与历史降采样。
+
+### 5.1.2 第三方硬件监测库接入（协议 v3）
+
+`HonorControl.Service` 集成 `LibreHardwareMonitorLib 0.9.6`，启用电池、CPU、GPU、主板、存储和控制器读取。采样只在以 LocalSystem 运行的服务进程中进行；控制面板通过原命名管道读取缓存，不直接访问硬件或申请管理员权限。
+
+该库的电池实现通过 Windows 电池设备接口读取设计容量与满充容量；CPU/GPU/存储温度和风扇 RPM 按硬件/驱动实际暴露的传感器采样。驱动没有提供的字段仍为 `null`。目前代码已接入，目标 HONOR 设备上的真实返回值仍需在更新后的服务运行后确认。
 
 ### 5.2 "读不到就不展示"的三层契约
 

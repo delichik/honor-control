@@ -43,7 +43,7 @@ export function HomePage() {
       <ThermalCard
         telemetry={telemetry}
         mockFields={mockFields}
-        performanceMode={snapshot?.Actual?.PerformanceMode ?? telemetry.PerformanceMode}
+        performanceMode={snapshot?.Actual?.PerformanceMode ?? telemetry.PerformanceMode ?? null}
       />
 
       <SectionCard

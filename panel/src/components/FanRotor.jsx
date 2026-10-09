@@ -35,9 +35,10 @@ export function secondsPerTurn(rpm, maxRpm = FAN_MAX_RPM) {
 }
 
 export function FanRotor({ label, rpm = 0, maxRpm = FAN_MAX_RPM }) {
-  const ratio = Math.min(1, Math.max(0, rpm / maxRpm))
-  const stopped = rpm < 120
-  const hot = ratio > 0.85
+  const hasRatedMaximum = typeof maxRpm === 'number' && Number.isFinite(maxRpm) && maxRpm > 0
+  const ratio = hasRatedMaximum ? Math.min(1, Math.max(0, rpm / maxRpm)) : null
+  const stopped = !hasRatedMaximum || rpm < 120
+  const hot = hasRatedMaximum && ratio > 0.85
 
   return (
     <div className="hc-fan-mini">
@@ -52,7 +53,7 @@ export function FanRotor({ label, rpm = 0, maxRpm = FAN_MAX_RPM }) {
           <g
             className={stopped ? 'hc-rotor is-still' : 'hc-rotor'}
             style={{
-              '--spin': `${secondsPerTurn(rpm, maxRpm).toFixed(2)}s`,
+              '--spin': `${secondsPerTurn(rpm, hasRatedMaximum ? maxRpm : undefined).toFixed(2)}s`,
               fill: hot ? 'var(--caution)' : 'var(--accent)',
             }}
           >

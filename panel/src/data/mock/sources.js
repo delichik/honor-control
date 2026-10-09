@@ -13,57 +13,64 @@ import * as gen from './generator.js'
  *   'unknown' 数据源未验证，需要真机确认
  *   'no'      已在真机上确认没有用户态来源
  *
- * 已按 HONOR BCC-N（Windows 11 build 26200）的实测结果收敛：
- * 电量、电池功率（带符号）、插电状态、满充容量、循环次数都**已经是真的**，
- * 因此它们不再出现在下面的清单里。
+ * Windows 自带 WMI 没有实例不代表设备没有数据源。服务改用 LibreHardwareMonitor
+ * 读取硬件传感器和 Windows 电池设备接口；可用字段仍需在服务运行时确认。
  */
 export const MOCK_SOURCES = [
   {
     key: 'BatteryTemperatureC',
     label: '电池温度',
-    serviceSupport: 'no',
-    reason: 'root\\wmi 的 BatteryTemperature 类在本机存在但**没有实例**，固件未暴露电池温度。',
-    reference: '真机实测（2026-10，HONOR BCC-N）',
+    serviceSupport: 'unknown',
+    reason: '服务通过 LibreHardwareMonitor 读取电池温度；该库或机型驱动未必提供此字段，仍需真机确认。',
+    reference: 'LibreHardwareMonitor 0.9.6；运行时能力探测',
     fill: (t) => gen.batteryTemperatureCAt(t),
   },
   {
     key: 'AdapterPowerW',
     label: '适配器功率',
-    serviceSupport: 'no',
-    reason: '0x0902 只给出适配器电压（实测 20000 mV）；电流命令尚未确认，因此服务端不报功率。',
+    serviceSupport: 'unknown',
+    reason: '荣耀协议已定位到 0x0902 电压与 0x10902/0x110902 电流的组合；服务侧电流读取与真机单位校验待完成。',
     reference: '真机实测 + research/conclusions.md 第 356 行',
     fill: (t) => gen.adapterPowerWAt(t),
   },
   {
     key: 'BatteryHealthPercent',
     label: '电池健康度',
-    serviceSupport: 'no',
-    reason: '缺设计容量无法计算：BatteryStaticData 无实例、Win32_Battery.DesignCapacity 为空，而 SYSTEM_BATTERY_STATE.MaxCapacity 实测等于当前满充容量（92041 mWh），拿它当设计容量会恒得 100%。',
-    reference: '真机实测（2026-10，HONOR BCC-N）',
+    serviceSupport: 'unknown',
+    reason: '健康度按满充容量 / 设计容量计算；服务现在通过 LibreHardwareMonitor 和 Windows 电池接口读取两项容量，需在目标机确认返回值。',
+    reference: 'LibreHardwareMonitor 0.9.6；运行时能力探测',
     fill: () => 96,
   },
   {
     key: 'BatteryDesignCapacityWh',
     label: '电池设计容量',
-    serviceSupport: 'no',
-    reason: '同上：本机没有任何可用的设计容量来源。',
-    reference: '真机实测（2026-10，HONOR BCC-N）',
+    serviceSupport: 'unknown',
+    reason: '服务通过 LibreHardwareMonitor 的 Windows 电池设备接口读取设计容量；需在目标机确认电池驱动是否提供。',
+    reference: 'LibreHardwareMonitor 0.9.6；运行时能力探测',
     fill: () => 83,
+  },
+  {
+    key: 'BatteryFullChargeCapacityWh',
+    label: '电池满充容量',
+    serviceSupport: 'yes',
+    reason: '来自 Windows 电池状态接口或 LibreHardwareMonitor；服务未返回时不能用设计容量代替。',
+    reference: 'HonorControl.Service BatteryService + LibreHardwareMonitor',
+    fill: () => 79.68,
   },
 ]
 
-/** 传感器（CPU/GPU/SSD 温度）：真机确认没有用户态来源。 */
+/** CPU/GPU/SSD 温度：LibreHardwareMonitor 可读到的传感器因机型与驱动而异。 */
 export const MOCK_SENSORS = {
-  serviceSupport: 'no',
-  reason: '真机实测：MSAcpi_ThermalZoneTemperature 不可用、Win32_TemperatureProbe 与 Win32_Fan 均为 0 实例、SMART（MSStorageDriver_ATAPISmartData）无实例。要拿核心温度只能引入内核驱动。',
-  reference: '真机实测（2026-10，HONOR BCC-N）',
+  serviceSupport: 'unknown',
+  reason: '服务通过 LibreHardwareMonitor 在系统服务中读取 CPU/GPU/存储传感器；具体可用项依赖硬件和驱动。',
+  reference: 'LibreHardwareMonitor 0.9.6；运行时能力探测',
 }
 
-/** 风扇转速：Win32 侧没有，荣耀通道的语义还没确认。 */
+/** 风扇转速：由硬件监测库或设备驱动暴露时读取；最高转速没有通用值。 */
 export const MOCK_FANS = {
   serviceSupport: 'unknown',
-  reason: 'Win32_Fan 无实例；荣耀通道 0x0802 返回的 out[1..2]（实测 1776~2838，量级与转速吻合但与封装功率混淆）语义未确认，且 OemWMIMethod 只允许 SYSTEM 访问，需要在服务里另做验证。',
-  reference: '真机实测 + research/conclusions.md 第 388 行',
+  reason: '服务通过 LibreHardwareMonitor 在系统服务中读取当前 RPM；机型是否暴露风扇传感器需实测，额定最高转速不由库保证。',
+  reference: 'LibreHardwareMonitor 0.9.6；运行时能力探测',
 }
 
 /** 风扇策略曲线：既读不到也写不了，曲线图上的形态是示例策略。 */
@@ -87,7 +94,7 @@ export const SERVICE_FIELDS = [
   { key: 'ChargeStartPercent', label: '开始充电阈值' },
   { key: 'ChargeStopPercent', label: '停止充电阈值' },
   { key: 'PerformanceMode', label: '性能模式' },
-  { key: 'SystemLoadW', label: '系统负载功率（拔电时由服务派生）' },
+  { key: 'SystemLoadW', label: '系统负载功率（拔电实算；接电依赖适配器功率）' },
 ]
 
 /** 演示/占位用的风扇上限；等服务端给出机型参数后应改为由 Capabilities 提供。 */

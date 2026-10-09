@@ -121,6 +121,7 @@ export function simulateTelemetry(tMs = Date.now(), { maxRpm = 6000 } = {}) {
     ChargeStopPercent: SOC_HIGH,
     BatteryHealthPercent: 96,
     BatteryDesignCapacityWh: 83,
+    BatteryFullChargeCapacityWh: 79.68,
     BatteryCycleCount: 214,
     Sensors: [
       { Id: 'cpu', Label: 'CPU', TempC: temps.cpu, WarnC: 70, HotC: 85 },

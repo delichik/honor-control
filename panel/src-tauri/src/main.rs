@@ -10,8 +10,8 @@ mod pipe;
 mod scm;
 
 /// 通信协议版本。必须与 `src/HonorControl.Contracts/ServiceContract.cs` 的 `ProtocolVersion` 一致：
-/// 面板与服务按同一份 v2 契约发布，版本不一致时直接报错让用户重装，不做降级兼容。
-const PROTOCOL_VERSION: i64 = 2;
+/// 面板与服务按同一份 v3 契约发布，版本不一致时直接报错让用户重装，不做降级兼容。
+const PROTOCOL_VERSION: i64 = 3;
 
 /// 单次请求超时（毫秒）。服务端每个请求自己有 5 秒超时（`PipeServer.cs` 的 `CancelAfter`），
 /// 超时后它直接关闭管道、什么都不回写。这里留 1 秒余量，让大多数故障落到“服务端超时断连”

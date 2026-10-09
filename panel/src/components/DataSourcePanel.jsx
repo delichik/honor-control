@@ -2,28 +2,97 @@ import { Badge, Switch, Table, TableBody, TableCell, TableHeader, TableHeaderCel
 import { SectionCard } from './SectionCard.jsx'
 import { MOCK_SENSORS, MOCK_FANS, MOCK_SOURCES, SERVICE_FIELDS } from '../data/mock/sources.js'
 import { useAppStore } from '../app/store.js'
+import { useServiceSnapshot, useTelemetry } from '../data/queries.js'
+import { deriveSystemLoadW } from '../data/derive.js'
 
 /**
  * 数据来源面板（开发/诊断用）。
  *
- * 面板里有一批指标服务当前拿不到，前端先用示例数据占位（见 data/mock/sources.js）。
+ * 按当前服务响应逐项标出实时值、示例值或暂不可用字段。
  * 这个面板把"哪些是真的、哪些是假的、为什么"摊开给使用者看，
  * 避免出现"界面很漂亮但不知道哪些数字能信"的情况。
  */
 export function DataSourcePanel() {
   const forceMock = useAppStore((state) => state.forceMock)
   const setForceMock = useAppStore((state) => state.setForceMock)
+  const { telemetry, mockFields } = useTelemetry()
+  const { snapshot } = useServiceSnapshot()
 
-  const mockRows = [
-    ...MOCK_SOURCES.map((source) => ({ label: source.label, reason: source.reason, reference: source.reference })),
-    { label: '温度传感器（CPU/GPU/SSD）', ...MOCK_SENSORS },
-    { label: '风扇转速', ...MOCK_FANS },
+  const status = (key, value) => {
+    const derivedMock = key === 'SystemLoadW' && telemetry.PluggedIn && mockFields.includes('AdapterPowerW')
+    if (mockFields.includes(key) || derivedMock) return 'example'
+    return value === null || value === undefined ? 'unavailable' : 'service'
+  }
+
+  const serviceRows = SERVICE_FIELDS.map((field) => {
+    let value = telemetry[field.key]
+    if (field.key === 'SystemLoadW') {
+      value = deriveSystemLoadW({
+        serviceValue: telemetry.SystemLoadW,
+        adapterPowerW: telemetry.AdapterPowerW,
+        batteryPowerW: telemetry.BatteryPowerW,
+        pluggedIn: telemetry.PluggedIn,
+      })
+    } else if (field.key === 'ChargeStartPercent') {
+      value = snapshot?.Actual?.ChargeStart
+    } else if (field.key === 'ChargeStopPercent') {
+      value = snapshot?.Actual?.ChargeEnd
+    } else if (field.key === 'PerformanceMode') {
+      value = snapshot?.Actual?.PerformanceMode
+    }
+    const kind = status(field.key, value)
+    return {
+      key: field.key,
+      label: field.label,
+      kind,
+      reason: kind === 'example'
+        ? field.key === 'SystemLoadW' && telemetry.PluggedIn
+          ? '当前系统负载由示例适配器功率推算。'
+          : '服务不可用时显示全量示例数据。'
+        : kind === 'unavailable'
+          ? '服务尚未返回实际读数。'
+          : '当前值来自 Honor Control 服务。',
+    }
+  })
+
+  const hardwareRows = MOCK_SOURCES.map((source) => {
+    const kind = status(source.key, telemetry[source.key])
+    return {
+      key: source.key,
+      label: source.label,
+      kind,
+      reason: kind === 'service'
+        ? '当前值由 Honor Control 服务实时返回。'
+        : `${source.reason}${source.reference ? `（${source.reference}）` : ''}`,
+    }
+  })
+
+  const sensorRows = [
+    {
+      key: 'Sensors',
+      label: '温度传感器（CPU/GPU/SSD）',
+      kind: status('Sensors', telemetry.Sensors?.length ? telemetry.Sensors : null),
+      reason: mockFields.includes('Sensors') ? MOCK_SENSORS.reason : '服务未从此设备返回温度传感器。',
+    },
+    {
+      key: 'Fans',
+      label: '风扇转速',
+      kind: status('Fans', telemetry.Fans?.length ? telemetry.Fans : null),
+      reason: mockFields.includes('Fans') ? MOCK_FANS.reason : '服务未从此设备返回风扇 RPM。',
+    },
+    {
+      key: 'FanCurve',
+      label: '风扇策略曲线',
+      kind: 'example',
+      reason: '曲线策略仍是示例数据，服务尚未提供固件曲线。',
+    },
   ]
+  const rows = [...serviceRows, ...hardwareRows, ...sensorRows]
 
   return (
     <SectionCard
       title="数据来源"
-      subtitle="服务已提供的字段与当前用示例数据占位的字段"
+      subtitle="当前每项数据的实际来源、示例值或缺失状态"
       actions={
         <Switch
           checked={forceMock}
@@ -33,8 +102,7 @@ export function DataSourcePanel() {
       }
     >
       <Text size={200} style={{ color: tokens.colorNeutralForeground3 }}>
-        打开"全量示例数据"后，界面完全由模拟模型驱动，便于在没有服务时预览与开发。
-        服务接上对应指标后，删除 data/mock/sources.js 里的条目即可，组件无需改动。
+        打开"全量示例数据"后，界面完全由模拟模型驱动。其他情况下每行按服务当前返回的值标记。
       </Text>
 
       <Table size="small" aria-label="数据来源">
@@ -46,24 +114,17 @@ export function DataSourcePanel() {
           </TableRow>
         </TableHeader>
         <TableBody>
-          {SERVICE_FIELDS.map((field) => (
-            <TableRow key={field.key}>
-              <TableCell>{field.label}</TableCell>
-              <TableCell>
-                <Badge appearance="tint" color="success" size="small">服务</Badge>
-              </TableCell>
-              <TableCell>
-                <Text size={200} style={{ color: tokens.colorNeutralForeground3 }}>
-                  由 Honor Control 服务通过 ACPI-WMI 读取
-                </Text>
-              </TableCell>
-            </TableRow>
-          ))}
-          {mockRows.map((row) => (
-            <TableRow key={row.label}>
+          {rows.map((row) => (
+            <TableRow key={row.key}>
               <TableCell>{row.label}</TableCell>
               <TableCell>
-                <Badge appearance="tint" color="warning" size="small">示例</Badge>
+                <Badge
+                  appearance="tint"
+                  color={row.kind === 'service' ? 'success' : row.kind === 'example' ? 'warning' : 'danger'}
+                  size="small"
+                >
+                  {row.kind === 'service' ? '服务' : row.kind === 'example' ? '示例' : '暂无数据'}
+                </Badge>
               </TableCell>
               <TableCell>
                 <Text size={200} style={{ color: tokens.colorNeutralForeground3 }}>

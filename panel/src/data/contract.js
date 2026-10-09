@@ -1,5 +1,5 @@
 /**
- * 与服务（命名管道 \\.\pipe\HonorControl.Service.v1）的通信契约，v2。
+ * 与服务（命名管道 \\.\pipe\HonorControl.Service.v1）的通信契约，v3。
  *
  * 约定（与服务端 .NET 8 实现一致，改动前必须两边同步）：
  * - 请求与响应都是**单行** UTF-8 JSON，以 \n 结束；一次连接只跑一问一答。
@@ -11,14 +11,14 @@
  * 服务拿不到的指标由 data/mock 补齐，详见 data/mock/sources.js。
  */
 
-export const PROTOCOL_VERSION = 2
+export const PROTOCOL_VERSION = 3
 
 /** 与服务端 ServiceContract.PipeName 保持一致。 */
 export const PIPE_NAME = String.raw`\\.\pipe\HonorControl.Service.v1`
 
 /**
  * 服务端 PipeServer.Execute 支持的命令。
- * 这是 v2 的完整命令集：服务端与面板同步发布，不保留旧版本分支。
+ * 这是 v3 的完整命令集：服务端与面板同步发布，不保留旧版本分支。
  */
 export const COMMANDS = {
   GetState: 'GetState',
@@ -82,16 +82,17 @@ export const POWER_EPSILON_W = 0.6
  * @typedef {Object} Telemetry
  * @property {string}  CheckedAt                采样时间（ISO 8601）
  * @property {boolean} PluggedIn                是否接入适配器
- * @property {number}  BatteryPercent           电量百分比
+ * @property {number|null} BatteryPercent        电量百分比
  * @property {number|null} BatteryTemperatureC  电池温度：服务当前无来源 → 示例数据
  * @property {number|null} BatteryPowerW        电池功率，带符号（正=充入，负=放出）
  * @property {number|null} AdapterPowerW        适配器输出功率：需真机验证电压×电流 → 示例数据
  * @property {number|null} SystemLoadW          系统负载功率（服务按 适配器 − 充入功率 派生）
- * @property {number}  PerformanceMode          1=智能 2=高能
- * @property {number}  ChargeStartPercent
- * @property {number}  ChargeStopPercent
+ * @property {number|null} PerformanceMode      实际模式：1=智能 2=高能
+ * @property {number|null} ChargeStartPercent   实际开始阈值
+ * @property {number|null} ChargeStopPercent    实际停止阈值
  * @property {number|null} BatteryHealthPercent 健康度：待真机确认电池类 → 示例数据
  * @property {number|null} BatteryDesignCapacityWh
+ * @property {number|null} BatteryFullChargeCapacityWh
  * @property {number|null} BatteryCycleCount
  * @property {SensorReading[]} Sensors          CPU/GPU/SSD 温度：暂无用户态来源 → 示例数据
  * @property {FanReading[]}    Fans             风扇转速：0x0802 语义未定 → 示例数据
@@ -140,6 +141,7 @@ export function emptyTelemetry() {
     ChargeStopPercent: 70,
     BatteryHealthPercent: null,
     BatteryDesignCapacityWh: null,
+    BatteryFullChargeCapacityWh: null,
     BatteryCycleCount: null,
     Sensors: [],
     Fans: [],
