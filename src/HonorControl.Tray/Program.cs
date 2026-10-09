@@ -151,7 +151,9 @@ internal static class Program
 
     private static string DescribeTelemetry(Contracts.Telemetry telemetry, ServiceSnapshot snapshot)
     {
-        string percent = $"{Math.Round(telemetry.BatteryPercent)}%";
+        string percent = telemetry.BatteryPercent is double batteryPercent
+            ? $"{Math.Round(batteryPercent)}%"
+            : "电量未知";
         string power;
         if (telemetry.BatteryPowerW is double watts && Math.Abs(watts) > 0.6)
         {
