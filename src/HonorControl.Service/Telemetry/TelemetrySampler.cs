@@ -34,6 +34,7 @@ internal sealed class TelemetrySampler : BackgroundService
     private readonly HistoryStore history;
     private readonly ILogger<TelemetrySampler> logger;
     private readonly HardwareSensorReader hardware;
+    private readonly AcpiThermalZoneReader acpiThermalZones;
 
     private TelemetrySnapshot current = new(DateTimeOffset.Now, null, null);
     private ServiceSnapshot? snapshot;
@@ -54,6 +55,7 @@ internal sealed class TelemetrySampler : BackgroundService
         this.history = history;
         this.logger = logger;
         hardware = new HardwareSensorReader(logger);
+        acpiThermalZones = new AcpiThermalZoneReader(logger);
         Capabilities = ProbeCapabilities();
     }
 
@@ -136,7 +138,8 @@ internal sealed class TelemetrySampler : BackgroundService
         double? batteryHealth = hardwareSnapshot.BatteryDesignCapacityWh is > 0 && fullChargeWh is > 0
             ? fullChargeWh.Value / hardwareSnapshot.BatteryDesignCapacityWh.Value * 100.0
             : null;
-        Capabilities = BuildCapabilities(cycleCountSupported, hardwareSnapshot, fullChargeWh.HasValue);
+        SensorReading[] sensors = hardwareSnapshot.Sensors.Concat(acpiThermalZones.Read()).ToArray();
+        Capabilities = BuildCapabilities(cycleCountSupported, hardwareSnapshot, fullChargeWh.HasValue, sensors.Length);
 
         return new TelemetrySnapshot(
             CheckedAt: now,
@@ -153,7 +156,7 @@ internal sealed class TelemetrySampler : BackgroundService
             BatteryDesignCapacityWh: hardwareSnapshot.BatteryDesignCapacityWh,
             BatteryFullChargeCapacityWh: fullChargeWh,
             BatteryCycleCount: cycleCount,
-            Sensors: hardwareSnapshot.Sensors,
+            Sensors: sensors,
             Fans: hardwareSnapshot.Fans,
             PcManagerOpen: actual.PcManagerOpen,
             ChargeError: actual.ChargeError,
@@ -173,13 +176,18 @@ internal sealed class TelemetrySampler : BackgroundService
         }
 
         cycleCountSupported = cycles.HasValue;
-        return BuildCapabilities(cycleCountSupported, hardwareSnapshot, battery.Read().FullChargeWh.HasValue);
+        return BuildCapabilities(
+            cycleCountSupported,
+            hardwareSnapshot,
+            battery.Read().FullChargeWh.HasValue,
+            hardwareSnapshot.Sensors.Count + acpiThermalZones.Read().Count);
     }
 
     private static Capabilities BuildCapabilities(
         bool hasCycleCount,
         HardwareSensorSnapshot readings,
-        bool hasFullChargeCapacity)
+        bool hasFullChargeCapacity,
+        int sensorCount)
     {
         Dictionary<string, string> missing = new()
         {
@@ -189,10 +197,10 @@ internal sealed class TelemetrySampler : BackgroundService
             ["BatteryHealth"] = readings.BatteryDesignCapacityWh.HasValue && hasFullChargeCapacity
                 ? string.Empty
                 : "硬件监测库或 Windows 电池接口未返回设计容量与满充容量。",
-            ["AdapterPower"] = "荣耀适配器电流读取路径尚未接入；当前不能给出真实适配器功率。",
-            ["Sensors"] = readings.Sensors.Count > 0
+            ["AdapterPower"] = "已探测到扩展电流值，但单位及实时/额定语义未确认；服务暂不换算为实时功率。",
+            ["Sensors"] = sensorCount > 0
                 ? string.Empty
-                : "LibreHardwareMonitor 未从此设备返回温度传感器。",
+                : "硬件库与 ACPI 均未从此设备返回温度传感器。",
             ["Fans"] = readings.Fans.Count > 0
                 ? string.Empty
                 : "LibreHardwareMonitor 未从此设备返回风扇转速。",
@@ -208,7 +216,7 @@ internal sealed class TelemetrySampler : BackgroundService
             ["BatteryDesignCapacity"] = readings.BatteryDesignCapacityWh.HasValue,
             ["BatteryHealth"] = readings.BatteryDesignCapacityWh.HasValue && hasFullChargeCapacity,
             ["AdapterPower"] = false,
-            ["Sensors"] = readings.Sensors.Count > 0,
+            ["Sensors"] = sensorCount > 0,
             ["Fans"] = readings.Fans.Count > 0,
             ["PowerLimits"] = false,
             ["History"] = true,

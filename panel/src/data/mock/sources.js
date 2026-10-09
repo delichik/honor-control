@@ -26,8 +26,8 @@ export const MOCK_SOURCES = [
     key: 'AdapterPowerW',
     label: '适配器功率',
     serviceSupport: 'unknown',
-    reason: '0x0902 可读到适配器电压；服务还未接入 0x10902/0x110902 电流读取，当前不能计算真实瓦数。',
-    reference: '真机实测 + research/conclusions.md 第 356 行',
+    reason: '只读探测返回 20 V 和扩展电流码 5000；电流单位及实时/额定语义尚未确认，暂不换算成瓦数。',
+    reference: 'research/conclusions.md（2026-10-09 HWMI 探测）',
   },
   {
     key: 'BatteryHealthPercent',

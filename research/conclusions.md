@@ -411,3 +411,15 @@ ecx *= edi;  ≈ /1e6                // V(mV) × I(μA/mA) / 1e6 → W
 | perf-snapshots.log | 三步实验的原始快照（step1-current / step2-highperf / step3-back-smart） |
 | perf-mode-trace.ps1 / perf-mode-trace.txt | 6 分钟连续采样（基线稳定性分析：区分动态遥测 vs 静态参数） |
 | analyze-trace.js | 采样数据 run-length 分析工具 |
+
+## 2026-10-09：传感器与适配器通道只读复查
+
+这次在本机通过已运行的 HonorControl 服务命名管道读取了实时遥测；另用管理员 PowerShell 对 `OemWMIfun` 做了只读调用，没有发送任何写命令。
+
+- 服务实际返回：电池温度 `null`、适配器功率 `null`、风扇数组为空；温度传感器返回 `YMTC PC41Q-1TB-B` 44 °C，Warning 82 °C、Critical 84 °C。此前设置页数据源表把这条传感器标为“服务”，却在说明里写“未返回”，现已修正为显示实际标签和值。
+- `OemWMIfun(02 09)` 返回 `00 00 20 4E`，即 20,000 mV。扩展输入 `02 09 10`（命令 `0x100902`）返回 `00 00 88 13`，即数值 5,000；`0x10902` 和 `0x110902` 的相应短命令输入返回 0。这个 5,000 的单位及其代表实时电流还是适配器能力尚未确认，所以不能将其相乘后冒充实时瓦数。
+- `OemWMIfun(02 08)` 返回 `00 8A 08 00`；`out[1..2]` 连续六次在 2,184–2,187 间变化，数值像 RPM，但仍可能是处理器功耗遥测。尚未与独立转速表读数交叉验证，故没有填入风扇 RPM。
+- 提权只读查询还发现 `MSAcpi_ThermalZoneTemperature` 有一个 `TZ00` 实例，`CurrentTemperature=3010`（27.85 °C）；`BatteryTemperature`、`Win32_Fan`、`Win32_TemperatureProbe` 均无实例。服务新增通用“ACPI 热区 TZ00”读数；它不是电池温度，也不推断为 CPU 温度。
+- `OemWMIfunEx` 对上述短命令和 64 位命令尝试均返回“无效的参数”。
+
+因此原生面板对未确认的温度、风扇 RPM 与适配器功率保持未知；当前已确认的 NVMe 温度会在温度传感器行展示。

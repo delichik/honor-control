@@ -17,6 +17,16 @@ export function DataSourcePanel() {
   const setForceMock = useAppStore((state) => state.setForceMock)
   const { telemetry, mockFields } = useTelemetry()
   const { snapshot } = useServiceSnapshot()
+  const sensors = telemetry.Sensors ?? []
+  const fans = telemetry.Fans ?? []
+  const sensorDetails = sensors.map((sensor) => {
+    const temperature = Number.isFinite(sensor.TempC) ? `${sensor.TempC.toFixed(1)} °C` : '—'
+    const thresholds = [
+      Number.isFinite(sensor.WarnC) ? `警告 ${sensor.WarnC} °C` : null,
+      Number.isFinite(sensor.HotC) ? `临界 ${sensor.HotC} °C` : null,
+    ].filter(Boolean)
+    return `${sensor.Label} ${temperature}${thresholds.length ? `（${thresholds.join('，')}）` : ''}`
+  })
 
   const status = (key, value) => {
     const derivedMock = key === 'SystemLoadW' && telemetry.PluggedIn && mockFields.includes('AdapterPowerW')
@@ -70,15 +80,23 @@ export function DataSourcePanel() {
   const sensorRows = [
     {
       key: 'Sensors',
-      label: '温度传感器（CPU/GPU/SSD）',
-      kind: status('Sensors', telemetry.Sensors?.length ? telemetry.Sensors : null),
-      reason: mockFields.includes('Sensors') ? MOCK_SENSORS.reason : '服务未从此设备返回温度传感器。',
+      label: '温度传感器',
+      kind: status('Sensors', sensors.length ? sensors : null),
+      reason: mockFields.includes('Sensors')
+        ? MOCK_SENSORS.reason
+        : sensors.length > 0
+          ? `服务返回：${sensorDetails.join(' · ')}`
+          : '服务未返回温度传感器。',
     },
     {
       key: 'Fans',
       label: '风扇转速',
-      kind: status('Fans', telemetry.Fans?.length ? telemetry.Fans : null),
-      reason: mockFields.includes('Fans') ? MOCK_FANS.reason : '服务未从此设备返回风扇 RPM。',
+      kind: status('Fans', fans.length ? fans : null),
+      reason: mockFields.includes('Fans')
+        ? MOCK_FANS.reason
+        : fans.length > 0
+          ? `服务返回：${fans.map((fan) => `${fan.Label} ${Number.isFinite(fan.Rpm) ? `${Math.round(fan.Rpm)} RPM` : '—'}`).join(' · ')}`
+          : '服务未返回风扇 RPM。',
     },
   ]
   const rows = [...serviceRows, ...hardwareRows, ...sensorRows]
