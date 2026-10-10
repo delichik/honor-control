@@ -7,6 +7,7 @@ using System.Runtime.InteropServices;
 using System.Diagnostics;
 using HonorControl.Contracts;
 using HonorControl.Service.Telemetry;
+using HonorControl.Services;
 using Microsoft.Extensions.Hosting;
 using Microsoft.Extensions.Logging;
 
@@ -18,6 +19,7 @@ internal sealed class PipeServer : BackgroundService
     private readonly ReconciliationCoordinator coordinator;
     private readonly TelemetrySampler telemetry;
     private readonly HistoryStore history;
+    private readonly WindowsPowerSettingsService windowsPower;
     private readonly ILogger<PipeServer> logger;
     private readonly PipeSecurity security = CreateSecurity();
 
@@ -26,12 +28,14 @@ internal sealed class PipeServer : BackgroundService
         ReconciliationCoordinator coordinator,
         TelemetrySampler telemetry,
         HistoryStore history,
+        WindowsPowerSettingsService windowsPower,
         ILogger<PipeServer> logger)
     {
         this.configuration = configuration;
         this.coordinator = coordinator;
         this.telemetry = telemetry;
         this.history = history;
+        this.windowsPower = windowsPower;
         this.logger = logger;
     }
 
@@ -163,6 +167,19 @@ internal sealed class PipeServer : BackgroundService
                 case "GetHistory":
                     HistoryQuery query = request.History ?? new HistoryQuery("BatteryPower", "24h");
                     return new(ServiceContract.ProtocolVersion, History: history.Query(query));
+
+                case "GetWindowsPower":
+                    return new(ServiceContract.ProtocolVersion, WindowsPower: windowsPower.Get());
+
+                case "SetWindowsPower":
+                    WindowsPowerSettingsUpdate settings = request.WindowsPower
+                        ?? throw new InvalidDataException("缺少 Windows 电源设置。");
+                    return new(ServiceContract.ProtocolVersion, WindowsPower: coordinator.ExecuteWindowsPowerOperation(
+                        () => windowsPower.Set(settings), selectingScheme: settings.SchemeId != null));
+
+                case "RestoreWindowsPower":
+                    return new(ServiceContract.ProtocolVersion, WindowsPower: coordinator.ExecuteWindowsPowerOperation(
+                        () => windowsPower.Restore(), selectingScheme: true));
 
                 default:
                     if (request.Desired == null)

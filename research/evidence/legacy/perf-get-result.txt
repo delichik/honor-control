@@ -1,0 +1,8 @@
+﻿0x0802 (perf mode status): ret=True u32Resrved=0
+  out[0..7]: 00 90 08 00 00 00 00 00
+0x3C06 (support mask): ret=True
+  out[0..7]: 00 00 00 00 00 00 00 00
+0x2606: ret=True
+  out[0..7]: 00 1E 00 00 00 00 00 00
+0x0902 (adapter): ret=True
+  out[0..7]: 00 00 20 4E 00 00 00 00

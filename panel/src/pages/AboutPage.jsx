@@ -78,7 +78,22 @@ export function AboutPage() {
           <SettingRow title="电池循环次数">
             <SettingValue>{cycleCount === null || cycleCount === undefined ? '—' : `${cycleCount} 次`}</SettingValue>
           </SettingRow>
+          <SettingRow title="电池温度">
+            <SettingValue><MockableValue field="BatteryTemperatureC" mocked={mockFields.includes('BatteryTemperatureC')}>
+              {Number.isFinite(telemetry.BatteryTemperatureC) ? `${telemetry.BatteryTemperatureC.toFixed(1)} °C` : '—'}
+            </MockableValue></SettingValue>
+          </SettingRow>
+          <SettingRow title="USB 输入电压">
+            <SettingValue>{Number.isFinite(telemetry.AdapterVoltageV) ? `${telemetry.AdapterVoltageV.toFixed(1)} V` : '—'}</SettingValue>
+          </SettingRow>
+          <SettingRow title="USB 电流读数" desc="官方接口读数，实时电流语义尚未确认">
+            <SettingValue>{Number.isFinite(telemetry.AdapterCurrentA) ? `${telemetry.AdapterCurrentA.toFixed(2)} A` : '—'}</SettingValue>
+          </SettingRow>
+          <SettingRow title="适配器瓦数诊断" desc="由电压、电流计算，不代表实时功耗或铭牌额定功率">
+            <SettingValue>{Number.isFinite(telemetry.AdapterReportedPowerW) ? `${telemetry.AdapterReportedPowerW.toFixed(1)} W` : '—'}</SettingValue>
+          </SettingRow>
         </div>
+        {telemetry.AdapterDiagnosticError ? <div className="hc-setting-error">{telemetry.AdapterDiagnosticError}</div> : null}
       </SectionCard>
 
       <SectionCard span={5} icon="info" title="关于">

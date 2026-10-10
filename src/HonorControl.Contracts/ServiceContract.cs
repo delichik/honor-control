@@ -6,14 +6,13 @@ namespace HonorControl.Contracts;
 /// 约定：请求与响应都是单行 UTF-8 JSON，字段名 PascalCase（System.Text.Json 默认行为）。
 /// 服务端每个请求有 5 秒超时，请求行上限 4096 字节——因此历史数据必须在服务端降采样后再返回。
 ///
-/// v4 将未采样的供电状态和历史缺口表示为 null，移除服务绑定的托盘策略与自停命令，
-/// 并将服务启停改由 SCM 显式提权。
+/// v5 增加独立的 USB 供电诊断、性能执行状态及 Windows 电源设置命令。
 /// 面板与服务**同步发布**，不保留旧协议兼容分支。
 /// </summary>
 public static class ServiceContract
 {
     public const string PipeName = "HonorControl.Service.v1";
-    public const int ProtocolVersion = 4;
+    public const int ProtocolVersion = 5;
 }
 
 public sealed record DesiredConfiguration(
@@ -36,7 +35,9 @@ public sealed record ActualState(
     string? ChargeError = null,
     string? PerformanceError = null,
     string? ServiceError = null,
-    DateTimeOffset? CheckedAt = null);
+    DateTimeOffset? CheckedAt = null,
+    bool PerformancePending = false,
+    int? PendingPerformanceMode = null);
 
 public sealed record ServiceSnapshot(DesiredConfiguration Desired, ActualState Actual);
 
@@ -73,7 +74,11 @@ public sealed record Telemetry(
     IReadOnlyList<FanReading>? Fans = null,
     bool PcManagerOpen = false,
     string? ChargeError = null,
-    string? ServiceError = null);
+    string? ServiceError = null,
+    double? AdapterVoltageV = null,
+    double? AdapterCurrentA = null,
+    double? AdapterReportedPowerW = null,
+    string? AdapterDiagnosticError = null);
 
 /// <summary>
 /// 服务自己探测出来的能力。面板用它决定"哪些行可以显示真实读数、哪些只能显示示例/隐藏"。
@@ -99,7 +104,8 @@ public sealed record ServiceRequest(
     int Version,
     string Command,
     DesiredConfiguration? Desired = null,
-    HistoryQuery? History = null);
+    HistoryQuery? History = null,
+    WindowsPowerSettingsUpdate? WindowsPower = null);
 
 public sealed record ServiceResponse(
     int Version,
@@ -107,4 +113,5 @@ public sealed record ServiceResponse(
     Telemetry? Telemetry = null,
     Capabilities? Capabilities = null,
     HistorySeries? History = null,
-    string? Error = null);
+    string? Error = null,
+    WindowsPowerSettingsSnapshot? WindowsPower = null);

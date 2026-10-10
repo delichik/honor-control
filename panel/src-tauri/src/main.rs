@@ -8,10 +8,11 @@
 
 mod pipe;
 mod scm;
+mod oem;
 
 /// 通信协议版本。必须与 `src/HonorControl.Contracts/ServiceContract.cs` 的 `ProtocolVersion` 一致：
-/// 面板与服务按同一份 v4 契约发布，版本不一致时直接报错让用户重装，不做降级兼容。
-const PROTOCOL_VERSION: i64 = 4;
+/// 面板与服务按同一份契约发布，版本不一致时直接报错让用户重装，不做降级兼容。
+const PROTOCOL_VERSION: i64 = 5;
 
 /// 单次请求超时（毫秒）。服务端每个请求自己有 5 秒超时（`PipeServer.cs` 的 `CancelAfter`），
 /// 超时后它直接关闭管道、什么都不回写。这里留 1 秒余量，让大多数故障落到“服务端超时断连”
@@ -28,18 +29,21 @@ struct ServiceRequest<'a> {
     command: &'a str,
     desired: Option<&'a serde_json::Value>,
     history: Option<&'a serde_json::Value>,
+    windows_power: Option<&'a serde_json::Value>,
 }
 
 fn build_request<'a>(
     command: &'a str,
     desired: Option<&'a serde_json::Value>,
     history: Option<&'a serde_json::Value>,
+    windows_power: Option<&'a serde_json::Value>,
 ) -> Result<serde_json::Value, String> {
     serde_json::to_value(ServiceRequest {
         version: PROTOCOL_VERSION,
         command,
         desired,
         history,
+        windows_power,
     })
     .map_err(|error| format!("构造服务请求失败（内部错误）：{error}"))
 }
@@ -62,8 +66,9 @@ fn service_request(
     command: String,
     desired: Option<serde_json::Value>,
     history: Option<serde_json::Value>,
+    windows_power: Option<serde_json::Value>,
 ) -> Result<serde_json::Value, String> {
-    let request = build_request(command.as_str(), desired.as_ref(), history.as_ref())?;
+    let request = build_request(command.as_str(), desired.as_ref(), history.as_ref(), windows_power.as_ref())?;
     let response = pipe::call(&request, REQUEST_TIMEOUT_MS)?;
 
     // 响应版本校验：服务端自己的校验只覆盖请求方向，响应方向在这里兜底。
@@ -170,8 +175,56 @@ fn main() {
             pipe_name,
             start_service,
             stop_service,
-            launch_tray
+            launch_tray,
+            oem::get_oem_features,
+            oem::oem_set_display,
+            oem::oem_set_audio,
+            oem::open_oem_page
         ])
         .run(tauri::generate_context!())
         .expect("Honor Control 控制面板启动失败：无法创建主窗口。")
+}
+
+#[cfg(test)]
+mod tests {
+    use super::{build_request, response_error};
+    use serde_json::json;
+
+    #[test]
+    fn windows_power_request_has_version_five_and_its_own_payload() {
+        let settings = json!({
+            "DcDisplayTimeoutSeconds": 300,
+            "ExpectedActiveSchemeId": "381b4222-f694-41f0-9685-ff5bb260df2e"
+        });
+        let request = build_request("SetWindowsPower", None, None, Some(&settings)).unwrap();
+        assert_eq!(request, json!({
+            "Version": 5,
+            "Command": "SetWindowsPower",
+            "Desired": null,
+            "History": null,
+            "WindowsPower": settings
+        }));
+    }
+
+    #[test]
+    fn history_request_keeps_the_query_in_history() {
+        let history = json!({ "Metric": "BatteryPower", "Range": "24h", "Points": 120 });
+        let request = build_request("GetHistory", None, Some(&history), None).unwrap();
+        assert_eq!(request, json!({
+            "Version": 5,
+            "Command": "GetHistory",
+            "Desired": null,
+            "History": history,
+            "WindowsPower": null
+        }));
+    }
+
+    #[test]
+    fn response_error_recognizes_only_nonempty_error_strings() {
+        let rejected = json!({ "Error": "当前 Windows 用户无权访问服务。" });
+        assert_eq!(response_error(&rejected), Some("当前 Windows 用户无权访问服务。"));
+        for response in [json!({ "Error": null }), json!({ "Error": "" }), json!({}), json!({ "Error": 5 })] {
+            assert_eq!(response_error(&response), None);
+        }
+    }
 }

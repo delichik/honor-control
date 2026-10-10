@@ -1,0 +1,106 @@
+{
+  "display": {
+    "features": [
+      {
+        "id": "eyeProtection",
+        "name": "护眼模式",
+        "supported": true,
+        "enabled": false,
+        "savedValue": "0",
+        "controlAvailable": true,
+        "reason": "",
+        "stateSource": "荣耀组件注册表记录（可能滞后）",
+        "effectsVerified": false
+      },
+      {
+        "id": "ebook",
+        "name": "电子书模式",
+        "supported": true,
+        "enabled": false,
+        "savedValue": "0",
+        "controlAvailable": true,
+        "reason": "",
+        "stateSource": "荣耀组件注册表记录（可能滞后）",
+        "effectsVerified": false
+      },
+      {
+        "id": "comfortDisplay",
+        "name": "舒适显示",
+        "supported": true,
+        "enabled": false,
+        "savedValue": "0",
+        "controlAvailable": true,
+        "reason": "",
+        "stateSource": "荣耀组件注册表记录（可能滞后）",
+        "effectsVerified": false
+      },
+      {
+        "id": "defocusEye",
+        "name": "离焦视力舒缓",
+        "supported": true,
+        "enabled": false,
+        "savedValue": "0",
+        "controlAvailable": true,
+        "reason": "",
+        "stateSource": "荣耀组件注册表记录（可能滞后）",
+        "effectsVerified": false
+      },
+      {
+        "id": "naturalLight",
+        "name": "类自然光",
+        "supported": true,
+        "enabled": false,
+        "savedValue": "0",
+        "controlAvailable": true,
+        "reason": "",
+        "stateSource": "荣耀组件注册表记录（可能滞后）",
+        "effectsVerified": false
+      },
+      {
+        "id": "colorTemperature",
+        "name": "色温调节",
+        "supported": true,
+        "enabled": null,
+        "savedValue": "0",
+        "controlAvailable": false,
+        "reason": "可在官方健康显示页面调节；当前未接入多参数色温控制。",
+        "stateSource": "荣耀组件注册表记录（可能滞后）",
+        "effectsVerified": false
+      },
+      {
+        "id": "colorManagement",
+        "name": "色彩管理",
+        "supported": false,
+        "enabled": null,
+        "savedValue": null,
+        "controlAvailable": false,
+        "reason": "官方组件记录本机不支持该功能。",
+        "stateSource": "荣耀组件注册表记录（可能滞后）",
+        "effectsVerified": false
+      }
+    ],
+    "displayType": "DISPLAY_TYPE_INTEL",
+    "stateSource": "荣耀组件注册表记录（可能滞后）",
+    "healthPageAvailable": true,
+    "colorPageAvailable": false
+  },
+  "audio": {
+    "installed": true,
+    "reason": "",
+    "live": {
+      "captureAbility": 8195,
+      "captureMode": 1,
+      "renderAbility": 16384,
+      "renderStatus": 1,
+      "microphoneControlAvailable": true,
+      "callNoiseControlAvailable": true,
+      "stateSource": "Senary SDK / 当前默认音频端点",
+      "effectsVerified": false
+    },
+    "savedMicScene": "Multiplayer",
+    "savedSpeakerEffect": "Music",
+    "savedCallNoise": 1,
+    "savedStateSource": "当前用户管家保存设置（不能证明已应用）",
+    "officialPageAvailable": true
+  }
+}

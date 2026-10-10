@@ -12,6 +12,9 @@ import { PerformanceSettingsPage } from './pages/PerformanceSettingsPage.jsx'
 import { ChargeHistoryPage } from './pages/ChargeHistoryPage.jsx'
 import { PowerHistoryPage } from './pages/PowerHistoryPage.jsx'
 import { AboutPage } from './pages/AboutPage.jsx'
+import { WindowsPowerSettingsPage } from './pages/WindowsPowerSettingsPage.jsx'
+import { OemFeaturesPage } from './pages/OemFeaturesPage.jsx'
+import './styles/pages-windows-power.css'
 
 const useStyles = makeStyles({
   root: { display: 'flex', flexDirection: 'column', height: '100%', position: 'relative' },
@@ -24,6 +27,8 @@ const PAGE_COMPONENTS = {
   home: HomePage,
   battery: BatterySettingsPage,
   performance: PerformanceSettingsPage,
+  windowsPower: WindowsPowerSettingsPage,
+  oemFeatures: OemFeaturesPage,
   chargeHistory: ChargeHistoryPage,
   powerHistory: PowerHistoryPage,
   about: AboutPage,

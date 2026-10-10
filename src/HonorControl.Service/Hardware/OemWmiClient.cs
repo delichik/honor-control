@@ -11,6 +11,8 @@ namespace HonorControl.Services
     {
         private const string NamespacePath = @"root\wmi";
         private const string PreferredInstance = @"ACPI\PNP0C14\HWMI_0";
+        // All clients share one transport gate: polling must not overlap a firmware write/readback.
+        private static readonly object TransportGate = new();
 
         public ChargeThreshold GetChargeThreshold()
         {
@@ -25,35 +27,20 @@ namespace HonorControl.Services
             if (start < 0 || start > 100 || end < 0 || end > 100 || start >= end)
                 throw new ArgumentOutOfRangeException("start", "充电阈值必须满足 0 <= start < end <= 100。");
 
-            Response response = Send(0x1003, (byte)start, (byte)end);
-            RequireBiosSuccess(response, "设置充电阈值");
-            return GetChargeThreshold();
+            lock (TransportGate)
+            {
+                Response response = Send(0x1003, (byte)start, (byte)end);
+                RequireBiosSuccess(response, "设置充电阈值");
+                return GetChargeThreshold();
+            }
         }
 
         public PerformanceStatus GetPerformanceStatus()
         {
             Response modeState = Send(0x0E04);
             RequireBiosSuccess(modeState, "读取性能模式状态");
-            Response telemetry = Send(0x0802);
-            RequireBiosSuccess(telemetry, "读取性能遥测");
-            Response support = Send(0x3C06);
-            RequireBiosSuccess(support, "读取性能模式支持信息");
-            Response adapter = Send(0x0902);
-            RequireBiosSuccess(adapter, "读取适配器电压");
-            if (modeState.Output.Length < 2 || support.Output.Length < 2 || adapter.Output.Length < 4)
-                throw new InvalidOperationException("性能模式状态、能力或适配器电压响应长度不足。");
-
-            int currentMode = modeState.Output[1] switch { 0 => 1, 1 => 2, _ => 0 };
-            int supportMask = support.Output[1];
-            int adapterVoltage = adapter.Output[2] | (adapter.Output[3] << 8);
-            return new PerformanceStatus(
-                currentMode,
-                ToHex(modeState.Output, 8),
-                ToHex(telemetry.Output, 8),
-                ToHex(support.Output, 8),
-                ToHex(adapter.Output, 8),
-                supportMask,
-                adapterVoltage);
+            // 0x3C06 is AC status, not a capability mask. Optional telemetry cannot block this GET.
+            return new PerformanceStatus(OemTelemetryProtocol.ParsePerformanceMode(modeState.Output), ToHex(modeState.Output, 8));
         }
 
         public PerformanceStatus SetPerformanceMode(int mode)
@@ -61,35 +48,93 @@ namespace HonorControl.Services
             if (mode < 1 || mode > 2)
                 throw new ArgumentOutOfRangeException("mode", "当前应用仅允许智能模式或高能模式。");
 
-            // PerfCommonPlugin.dll SetTurboMode(mode): byte 2 is mode - 1.
-            Response response = Send(0x0C07, (byte)(mode - 1));
-            RequireBiosSuccess(response, "设置性能模式");
-
-            PerformanceStatus? latest = null;
-            for (int attempt = 0; attempt < 4; attempt++)
+            lock (TransportGate)
             {
-                if (attempt > 0) Thread.Sleep(200);
-                latest = GetPerformanceStatus();
-                if (latest.CurrentMode == mode) return latest;
-            }
+                // PerfCommonPlugin.dll!TurboMode::SetTurboMode; 0x0C07 controls noise instead.
+                Response response = Send(OemTelemetryProtocol.PerformanceSetCommand, OemTelemetryProtocol.PerformancePayload(mode));
+                RequireBiosSuccess(response, "设置性能模式");
 
-            string actual = latest?.CurrentMode switch { 1 => "智能模式", 2 => "高能模式", _ => "未知模式" };
-            throw new InvalidOperationException($"性能模式写入后的 0x0E04 回读不符：请求模式 {mode}，实际为{actual}。");
+                PerformanceStatus? latest = null;
+                for (int attempt = 0; attempt < 4; attempt++)
+                {
+                    if (attempt > 0) Thread.Sleep(200);
+                    latest = GetPerformanceStatus();
+                    if (latest.CurrentMode == mode) return latest;
+                }
+
+                string actual = latest?.CurrentMode switch { 1 => "智能模式", 2 => "高能模式", _ => "未知模式" };
+                throw new InvalidOperationException($"性能模式写入后的 0x0E04 回读不符：请求模式 {mode}，实际为{actual}。");
+            }
         }
 
         private static Response Send(ushort command, params byte[] payload)
+        {
+            return InSession(send => send(command, payload));
+        }
+
+        public OemTelemetryReading GetTelemetry()
+        {
+            return InSession(send =>
+            {
+                double? temperature = null;
+                double? voltage = null;
+                double? current = null;
+                string? temperatureError = null;
+                string? adapterError = null;
+                try { temperature = OemTelemetryProtocol.ParseBatteryTemperature(send(0x0202, new byte[] { 0x0E }).Output); }
+                catch (Exception exception) { temperatureError = exception.Message; }
+
+                // USB0 is preferred. USB1 is attempted only if USB0 voltage is unavailable/zero.
+                byte port = 0;
+                try { voltage = OemTelemetryProtocol.ParseAdapterValue(send(0x0902, Array.Empty<byte>()).Output, true); }
+                catch (Exception exception) { adapterError = exception.Message; }
+                if (voltage is not > 0)
+                {
+                    port = 1;
+                    try
+                    {
+                        voltage = OemTelemetryProtocol.ParseAdapterValue(send(0x1902, Array.Empty<byte>()).Output, true);
+                        adapterError = null;
+                    }
+                    catch (Exception exception) { adapterError = JoinDiagnostic(adapterError, exception.Message); }
+                }
+                if (voltage is > 0)
+                {
+                    try { current = OemTelemetryProtocol.ParseAdapterValue(send(0x0902, new byte[] { (byte)(0x10 + port) }).Output, false); }
+                    catch (Exception exception) { adapterError = JoinDiagnostic(adapterError, exception.Message); }
+                }
+                else
+                {
+                    voltage = null;
+                    adapterError = JoinDiagnostic(adapterError, "未读到有效 USB 输入电压。");
+                }
+                return new OemTelemetryReading(temperature, temperatureError, voltage, current,
+                    voltage.HasValue && current.HasValue ? voltage * current : null, adapterError);
+            });
+        }
+
+        private static string JoinDiagnostic(string? previous, string next) =>
+            string.IsNullOrEmpty(previous) ? next : previous + "；" + next;
+
+        private static byte[] BuildInput(ushort command, byte[] payload)
         {
             if (payload.Length > 62) throw new ArgumentOutOfRangeException("payload", "WMI 短命令载荷不能超过 62 字节。");
             byte[] input = new byte[64];
             input[0] = (byte)(command & 0xFF);
             input[1] = (byte)((command >> 8) & 0xFF);
             Array.Copy(payload, 0, input, 2, payload.Length);
+            return input;
+        }
 
+        private static T InSession<T>(Func<Func<ushort, byte[], Response>, T> action)
+        {
+            lock (TransportGate) return InSessionCore(action);
+        }
+
+        private static T InSessionCore<T>(Func<Func<ushort, byte[], Response>, T> action)
+        {
             CimSession session;
-            try
-            {
-                session = CimSession.Create(null);
-            }
+            try { session = CimSession.Create(null); }
             catch (Exception exception)
             {
                 throw CreateDiagnosticException("创建本地 CIM 会话", Array.Empty<Candidate>(), exception);
@@ -108,44 +153,43 @@ namespace HonorControl.Services
                     throw CreateDiagnosticException("通过 CIM 枚举 OemWMIMethod", Array.Empty<Candidate>(), exception);
                 }
 
-                try
-                {
-                    Exception? lastTransportError = null;
-                    string? lastStage = null;
-                    List<string> attemptFailures = new List<string>();
-                    foreach (Candidate candidate in candidates)
-                    {
-                        if (!candidate.IsEligible) continue;
-                        for (int attempt = 0; attempt < 2; attempt++)
-                        {
-                            string stage = $"通过 CIM 调用 OemWMIfun 命令 0x{command:X4}（{candidate.InstanceName}，第 {attempt + 1} 次）";
-                            try { return Invoke(session, candidate.Object, input); }
-                            catch (Exception exception) when (IsTransportError(exception))
-                            {
-                                lastTransportError = exception;
-                                lastStage = stage;
-                                attemptFailures.Add(stage + "：" + FormatExceptionChain(exception));
-                                if (attempt == 0) Thread.Sleep(100);
-                            }
-                            catch (Exception exception)
-                            {
-                                attemptFailures.Add(stage + "：" + FormatExceptionChain(exception));
-                                throw CreateDiagnosticException(stage, candidates, exception, attemptFailures);
-                            }
-                        }
-                    }
-
-                    if (lastTransportError != null)
-                        throw CreateDiagnosticException(lastStage ?? $"通过 CIM 调用 OemWMIfun 命令 0x{command:X4}", candidates, lastTransportError, attemptFailures);
-                    throw new InvalidOperationException($"未找到活动的荣耀 HWMI 接口。诊断：命令=0x{command:X4}；候选实例=" + FormatCandidates(candidates) + "。此机型可能不支持该接口。");
-                }
-                finally
-                {
-                    foreach (Candidate candidate in candidates) candidate.Dispose();
-                }
+                try { return action((command, payload) => SendOnSession(session, candidates, command, payload)); }
+                finally { foreach (Candidate candidate in candidates) candidate.Dispose(); }
             }
         }
 
+        private static Response SendOnSession(CimSession session, List<Candidate> candidates, ushort command, byte[] payload)
+        {
+            byte[] input = BuildInput(command, payload);
+            Exception? lastTransportError = null;
+            string? lastStage = null;
+            List<string> attemptFailures = new();
+            foreach (Candidate candidate in candidates)
+            {
+                if (!candidate.IsEligible) continue;
+                for (int attempt = 0; attempt < 2; attempt++)
+                {
+                    string stage = $"通过 CIM 调用 OemWMIfun 命令 0x{command:X4}（{candidate.InstanceName}，第 {attempt + 1} 次）";
+                    try { return Invoke(session, candidate.Object, input); }
+                    catch (Exception exception) when (IsTransportError(exception))
+                    {
+                        lastTransportError = exception;
+                        lastStage = stage;
+                        attemptFailures.Add(stage + "：" + FormatExceptionChain(exception));
+                        if (attempt == 0) Thread.Sleep(100);
+                    }
+                    catch (Exception exception)
+                    {
+                        attemptFailures.Add(stage + "：" + FormatExceptionChain(exception));
+                        throw CreateDiagnosticException(stage, candidates, exception, attemptFailures);
+                    }
+                }
+            }
+
+            if (lastTransportError != null)
+                throw CreateDiagnosticException(lastStage ?? $"通过 CIM 调用 OemWMIfun 命令 0x{command:X4}", candidates, lastTransportError, attemptFailures);
+            throw new InvalidOperationException($"未找到活动的荣耀 HWMI 接口。诊断：命令=0x{command:X4}；候选实例=" + FormatCandidates(candidates) + "。此机型可能不支持该接口。");
+        }
         private static List<Candidate> GetCandidates(IEnumerable<CimInstance> instances)
         {
             List<Candidate> result = new List<Candidate>();

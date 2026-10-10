@@ -1,5 +1,6 @@
 using HonorControl.Service;
 using HonorControl.Service.Telemetry;
+using HonorControl.Services;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Hosting;
 
@@ -8,6 +9,7 @@ Host.CreateDefaultBuilder(args)
     .ConfigureServices(services =>
     {
         services.AddSingleton<ConfigurationStore>();
+        services.AddSingleton<WindowsPowerSettingsService>();
         services.AddSingleton<ReconciliationCoordinator>();
         services.AddHostedService(provider => provider.GetRequiredService<ReconciliationCoordinator>());
 

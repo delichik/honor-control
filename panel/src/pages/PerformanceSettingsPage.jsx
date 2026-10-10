@@ -22,7 +22,7 @@ const watts = (value) => `${value} W`
  *
  * 版式照设计稿：左边 sp5 的「性能模式」单选卡，右边 sp7 的「功耗限制」设置行。
  *
- * 性能模式（智能/高能）是真正能写的：服务发 0x0C07，并在写前复核 AC 供电、电量 ≥ 20%、
+ * 性能模式（智能/高能）由服务发 0x0F04，高能进入前复核 AC 供电、电量 ≥ 20%、
  * 目标电源方案是否存在，写后回读 0x0E04 与电源方案。
  *
  * 功耗限制（PL1/PL2/整机上限）目前不可写，保留只读机型档案信息。
@@ -36,6 +36,16 @@ export function PerformanceSettingsPage() {
   const actualMode = snapshot?.Actual?.PerformanceMode ?? telemetry.PerformanceMode ?? null
   const configuredMode = snapshot?.Desired?.PerformanceMode ?? actualMode ?? 1
   const [mode, setMode] = useState(configuredMode)
+  const [submittedMode, setSubmittedMode] = useState(null)
+  const actual = snapshot?.Actual
+  const awaitingReadback = actual?.PerformancePending === true
+  const operationError = setPerformanceMode.error?.message ?? actual?.PerformanceError ?? actual?.ServiceError
+  const highModeReason = mode === 2 && !fullMock
+    ? actual?.IsOnAcPower !== true ? '高能模式需要接通电源。'
+      : !(actual?.BatteryPercent >= 20) ? '高能模式需要电量至少 20%。'
+        : actual?.HonorPerformancePlanAvailable !== true ? '设备没有可用的 Honor Performance 电源方案。' : null
+    : null
+  const blocked = !serviceReachable || setPerformanceMode.isPending || actual?.PcManagerOpen || Boolean(highModeReason)
 
   useEffect(() => {
     if (!setPerformanceMode.isPending) setMode(configuredMode)
@@ -77,7 +87,8 @@ export function PerformanceSettingsPage() {
               <RadioCard
                 key={item.id}
                 selected={mode === item.id}
-                onSelect={() => setMode(item.id)}
+                onSelect={() => { setMode(item.id); setSubmittedMode(null); setPerformanceMode.reset() }}
+                disabled={setPerformanceMode.isPending}
                 title={card.label}
                 icon={card.icon}
                 metrics={
@@ -95,19 +106,25 @@ export function PerformanceSettingsPage() {
           <button
             type="button"
             className="hc-btn hc-btn--accent"
-            disabled={mode === actualMode || setPerformanceMode.isPending}
-            onClick={() => setPerformanceMode.mutate({ PerformanceMode: mode })}
+            disabled={blocked || (awaitingReadback && !operationError) || (mode === actualMode && !operationError && !awaitingReadback)}
+            onClick={() => { setSubmittedMode(mode); setPerformanceMode.mutate({ PerformanceMode: mode }) }}
           >
-            {setPerformanceMode.isPending ? '应用中…' : '应用'}
+            {setPerformanceMode.isPending ? '保存中…' : awaitingReadback && !operationError ? '等待回读…' : operationError ? '重试' : '应用'}
           </button>
         </div>
 
-        {setPerformanceMode.isError ? (
+        {highModeReason ? <InfoBar tone="caution" icon="info" title="暂不能进入高能模式">{highModeReason}</InfoBar> : null}
+        {operationError ? (
           <InfoBar tone="critical" icon="warn" title="写入失败">
-            {setPerformanceMode.error.message}
+            {operationError}
           </InfoBar>
         ) : null}
-        {setPerformanceMode.isSuccess && mode === actualMode ? (
+        {awaitingReadback && !operationError ? (
+          <InfoBar title={actual?.PcManagerOpen ? '等待电脑管家关闭' : '配置已保存，等待执行'}>
+            服务完成固件与电源方案回读后才会显示已生效。
+          </InfoBar>
+        ) : null}
+        {setPerformanceMode.isSuccess && submittedMode === actualMode && !awaitingReadback && !operationError ? (
           <InfoBar tone="success" icon="check-circle" title="已生效">
             已切换到 {modeLabel(actualMode)}。
           </InfoBar>

@@ -6,7 +6,7 @@ import {
   PROTOCOL_VERSION,
   emptyTelemetry,
 } from './contract.js'
-import { isTauriRuntime, serviceRequest, startService, stopService } from './transport.js'
+import { isTauriRuntime, serviceRequest, startService, stopService, oemRequest } from './transport.js'
 import { applyMockPolicy } from './mock/index.js'
 import { useAppStore } from '../app/store.js'
 import { useNow } from '../app/useNow.js'
@@ -14,7 +14,7 @@ import { useNow } from '../app/useNow.js'
 /**
  * 服务数据统一走这里。
  *
- * 面板与服务按同一份 v4 契约发布：版本不一致时直接报错让用户重装，不做降级兼容。
+ * 面板与服务按同一份契约发布：版本不一致时直接报错让用户重装，不做降级兼容。
  * 原生面板只展示服务读数；没有读数就保持 null/空数组。示例数据只用于浏览器预览或显式演示模式。
  *
  * 轮询频率按"服务端很便宜"设计：快照与遥测都只读服务端内存缓存，不打 WMI（可行性文档 5.3）。
@@ -54,7 +54,7 @@ function useSnapshotQuery(select) {
   return useQuery({
     queryKey: ['snapshot'],
     queryFn: async () => unwrap(await serviceRequest(COMMANDS.GetState)).Snapshot,
-    refetchInterval: 5000,
+    refetchInterval: (query) => query.state.data?.Actual?.PerformancePending ? 1000 : 5000,
     retry: 0,
     select,
   })
@@ -194,7 +194,8 @@ function useServiceMutation(command) {
   const queryClient = useQueryClient()
   return useMutation({
     mutationFn: async (desired) => unwrap(await serviceRequest(command, desired)).Snapshot,
-    onSuccess: () => {
+    onSuccess: (snapshot) => {
+      if (snapshot) queryClient.setQueryData(['snapshot'], snapshot)
       queryClient.invalidateQueries({ queryKey: ['snapshot'] })
       queryClient.invalidateQueries({ queryKey: ['telemetry'] })
     },
@@ -211,6 +212,67 @@ export function useSetPerformanceMode() {
 
 export function useSetAutoReconcile() {
   return useServiceMutation(COMMANDS.SetAutoReconcile)
+}
+
+/** Windows 电源方案与 AC/DC 设置由服务读取，和荣耀固件性能模式分开。 */
+export function useWindowsPower() {
+  const health = useServiceHealth()
+  const query = useQuery({
+    queryKey: ['windowsPower'],
+    queryFn: async () => unwrap(await serviceRequest(COMMANDS.GetWindowsPower)).WindowsPower,
+    enabled: health.serviceReachable,
+    refetchInterval: 15000,
+    retry: 0,
+  })
+  return { ...query, settings: query.data ?? null, serviceReachable: health.serviceReachable, isPreview: !isTauriRuntime(), error: query.error ?? health.error }
+}
+
+export function useSetWindowsPower() {
+  const queryClient = useQueryClient()
+  return useMutation({
+    mutationFn: async (settings) => unwrap(await serviceRequest(COMMANDS.SetWindowsPower, null, null, settings)).WindowsPower,
+    onSuccess: (settings) => {
+      queryClient.setQueryData(['windowsPower'], settings)
+      queryClient.invalidateQueries({ queryKey: ['snapshot'] })
+    },
+  })
+}
+
+export function useRestoreWindowsPower() {
+  const queryClient = useQueryClient()
+  return useMutation({
+    mutationFn: async () => unwrap(await serviceRequest(COMMANDS.RestoreWindowsPower)).WindowsPower,
+    onSuccess: (settings) => {
+      queryClient.setQueryData(['windowsPower'], settings)
+      queryClient.invalidateQueries({ queryKey: ['snapshot'] })
+    },
+  })
+}
+
+export function useOemFeatures() {
+  const query = useQuery({
+    queryKey: ['oemFeatures'],
+    queryFn: () => oemRequest('get_oem_features'),
+    refetchInterval: 30000,
+    staleTime: 10000,
+    retry: 0,
+  })
+  return { ...query, features: query.data ?? null, isPreview: !isTauriRuntime() }
+}
+
+export function useOemControl() {
+  const queryClient = useQueryClient()
+  return useMutation({
+    mutationFn: ({ type, feature, enabled, value }) => oemRequest(
+      type === 'display' ? 'oem_set_display' : 'oem_set_audio',
+      type === 'display' ? { feature, enabled } : { feature, value },
+    ),
+    onSuccess: () => queryClient.invalidateQueries({ queryKey: ['oemFeatures'] }),
+  })
+}
+
+export function useOpenOemPage() {
+  return useMutation({ mutationFn: (page) => oemRequest('open_oem_page', { page }) })
 }
 
 /**

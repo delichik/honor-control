@@ -1,0 +1,44 @@
+.hc-windows-power-messages {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.hc-windows-power-messages:empty { display: none; }
+
+.hc-windows-power-select {
+  width: 150px;
+  flex: 0 0 150px;
+  min-height: 32px;
+  padding: 4px 10px;
+  border: 1px solid var(--ctrl-stroke);
+  border-radius: 4px;
+  background: var(--ctrl-fill);
+  color: var(--text-primary);
+  font: inherit;
+  font-size: 13px;
+}
+
+.hc-windows-power-select option {
+  background: var(--bg-base);
+  color: var(--text-primary);
+}
+
+.hc-windows-power-select:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 2px;
+}
+
+.hc-windows-power-select:disabled { color: var(--text-disabled); }
+.hc-windows-power-plan { width: 230px; flex-basis: 230px; }
+.hc-windows-power-actions { flex-wrap: wrap; }
+.hc-windows-power-card .hc-edit-hint { margin: 0; }
+.hc-windows-power-card .hc-infobar-msg { white-space: normal; }
+.hc-windows-power-messages .hc-infobar-msg { white-space: normal; }
+.hc-windows-power-card .hc-infobar > .hc-btn { flex-shrink: 0; }
+
+@media (max-width: 760px) {
+  .hc-windows-power-card .hc-setting { align-items: flex-start; flex-wrap: wrap; }
+  .hc-windows-power-card .hc-setting-body { flex-basis: 100%; }
+  .hc-windows-power-card .hc-infobar { flex-wrap: wrap; }
+}

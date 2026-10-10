@@ -1,5 +1,7 @@
 # Honor Control 控制面板（panel）
 
+当前协议为 v5；面板、托盘与服务同步发布。新增“系统电源”“显示与音频”页面及 USB 电压／电流诊断；硬件控制、官方组件版本校验、恢复与验证边界见 [实现说明](../docs/hardware-controls-implementation.md)。浏览器预览使用明确标注的示例数据，原生面板不补造设备状态。
+
 服务（`src/HonorControl.Service`，.NET 8，LocalSystem）的控制面板。**面板本身不做任何权限提升**，
 所有硬件操作都由服务经 ACPI-WMI 完成，面板只是它的一个客户端。
 

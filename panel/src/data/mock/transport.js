@@ -20,6 +20,20 @@ const state = {
   autoReconcile: true,
 }
 
+const previewPower = {
+  ActiveSchemeId: '381b4222-f694-41f0-9685-ff5bb260df2e',
+  Schemes: [
+    { Id: '381b4222-f694-41f0-9685-ff5bb260df2e', Name: '平衡' },
+    { Id: 'b8a2c9f4-7d3e-4a1b-9c2f-5e8d6a3b1c4f', Name: 'Honor Performance（示例）' },
+  ],
+  AcDisplayTimeoutSeconds: 600, DcDisplayTimeoutSeconds: 180,
+  AcSleepTimeoutSeconds: 0, DcSleepTimeoutSeconds: 0,
+  AcDiskTimeoutSeconds: 60, DcDiskTimeoutSeconds: 60,
+  AcIntelGraphicsPowerPlan: 1, DcIntelGraphicsPowerPlan: 1,
+  CanRestore: false, MissingReason: {},
+}
+let previewPowerBackup = null
+
 const delay = (ms) => new Promise((resolve) => setTimeout(resolve, ms))
 
 function telemetry() {
@@ -71,7 +85,7 @@ function snapshot() {
   }
 }
 
-export async function mockRequest(command, desired = null, history = null) {
+export async function mockRequest(command, desired = null, history = null, windowsPower = null) {
   await delay(40)
 
   switch (command) {
@@ -137,6 +151,38 @@ export async function mockRequest(command, desired = null, history = null) {
     case COMMANDS.SetAutoReconcile:
       state.autoReconcile = desired?.AutoReconcile ?? state.autoReconcile
       return { Version: PROTOCOL_VERSION, Error: null, Snapshot: snapshot() }
+
+    case COMMANDS.GetWindowsPower:
+      return { Version: PROTOCOL_VERSION, Error: null, WindowsPower: { ...previewPower } }
+
+    case COMMANDS.SetWindowsPower: {
+      if (windowsPower?.ExpectedActiveSchemeId && windowsPower.ExpectedActiveSchemeId !== previewPower.ActiveSchemeId) {
+        return { Version: PROTOCOL_VERSION, Error: 'Windows 电源方案已被其他程序切换，请刷新后重试。' }
+      }
+      if (windowsPower?.SchemeId && state.autoReconcile) {
+        return { Version: PROTOCOL_VERSION, Error: '请先关闭自动维护，再手动选择 Windows 电源方案。' }
+      }
+      const updates = Object.entries(windowsPower ?? {}).filter(([key]) => key !== 'ExpectedActiveSchemeId')
+      for (const [key, value] of updates) {
+        const valid = key === 'SchemeId' ? previewPower.Schemes.some((scheme) => scheme.Id === value)
+          : key.includes('TimeoutSeconds') ? Number.isInteger(value) && value >= 0 && value <= 86400
+            : key.includes('IntelGraphicsPowerPlan') ? [0, 1, 2].includes(value) : false
+        if (!valid) return { Version: PROTOCOL_VERSION, Error: 'Windows 电源设置值无效。' }
+      }
+      if (updates.length) {
+        previewPowerBackup ??= { ...previewPower }
+        for (const [key, value] of updates) previewPower[key === 'SchemeId' ? 'ActiveSchemeId' : key] = value
+        previewPower.CanRestore = true
+      }
+      return { Version: PROTOCOL_VERSION, Error: null, WindowsPower: { ...previewPower } }
+    }
+
+    case COMMANDS.RestoreWindowsPower:
+      if (state.autoReconcile) return { Version: PROTOCOL_VERSION, Error: '请先关闭自动维护，再恢复 Windows 电源设置。' }
+      if (previewPowerBackup) Object.assign(previewPower, previewPowerBackup)
+      previewPowerBackup = null
+      previewPower.CanRestore = false
+      return { Version: PROTOCOL_VERSION, Error: null, WindowsPower: { ...previewPower } }
 
     default:
       return { Version: PROTOCOL_VERSION, Error: `未知命令：${command}`, Snapshot: null }

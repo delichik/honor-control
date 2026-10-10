@@ -1,0 +1,65 @@
+{
+  "Method": "Static PE analysis and read-only registry/powercfg/pnputil queries; no DLL loading or settings writes",
+  "DisplayCapabilities": {
+    "HdrAcmEnabled": "0",
+    "IsSupportScreenMaintenance": "0",
+    "IsSupportEbookMode": "1",
+    "IsSupportColorTemperatureAdjust": "1",
+    "IsSupportComfortDisplay": "1",
+    "IsSupportColorManagement": "0",
+    "IsSupportNatualLight": "1",
+    "IsSupportEyeProtect": "1",
+    "DisplayType": "DISPLAY_TYPE_INTEL",
+    "IsSupportDefocusEyePrtect": "1"
+  },
+  "RegistryPath": "HKLM\\SOFTWARE\\HONOR\\PCManager\\LCDEnhancement",
+  "Power": {
+    "ScreenDcSeconds": 300,
+    "DiskDcSeconds": 600,
+    "BalancedScheme": "381b4222-f694-41f0-9685-ff5bb260df2e",
+    "Details": "Values traced in hn_plugin_doctor.dll HwaPageDetect function 0x13D4F0",
+    "IntelGraphicsPowerPlanIndex": 1,
+    "IntelGroup": "44f3beca-a7c0-460e-9df2-bb8b99e0cba6",
+    "IntelSetting": "3619c3f2-afb2-4afc-b0e9-e7fef372de36",
+    "AmdGraphicsPowerPlanIndex": 0,
+    "AmdGroup": "f693fb01-e858-4f00-b20f-f30e12ac06d6",
+    "AmdSetting": "191f65b5-d45c-4a4f-8aae-1ab8bfd980e6"
+  },
+  "Files": [
+    {
+      "File": "C:\\Program Files\\Honor\\PCManager\\plugins\\HnSmartDisplay.dll",
+      "Version": null,
+      "SHA256": "2B9EEAC75D922809DA4941322EC00B2FC527B3D25448F2E1E4DF83A605AA70F1"
+    },
+    {
+      "File": "C:\\Program Files\\Honor\\HnLcdEnhancement\\LCDServiceTrans.dll",
+      "Version": null,
+      "SHA256": "163562E3DE84AB33FBC0FC275F3E545EC3E1F65AE0FBB3693CB1C0FB3A522F95"
+    },
+    {
+      "File": "C:\\Program Files\\Honor\\HnLcdEnhancement\\BasicDisplayAdapter.dll",
+      "Version": "1.0.1.0",
+      "SHA256": "4FB19DDC36B2C29BB44DB899E003C740B30050E8FEE48D8CF104E4D3EC298852"
+    },
+    {
+      "File": "C:\\Program Files\\Honor\\PCManager\\plugins\\SmartAudioPlugin.dll",
+      "Version": null,
+      "SHA256": "00EE7EE27090879D4EA92C3E7A0AE001B93EFE46A810E4F95D1924CD37B2D80B"
+    },
+    {
+      "File": "C:\\Program Files\\Honor\\PCManager\\plugins\\AdjustSmartAudioScenes.dll",
+      "Version": null,
+      "SHA256": "151BF5A48B973791DCCD4B4AF40803926434E448C3428766DE346A0DC2937F28"
+    },
+    {
+      "File": "C:\\Program Files\\Honor\\PCManager\\SenaryInterface.dll",
+      "Version": null,
+      "SHA256": "2CEB760C8857BA2987625B44434233D718761BF3832B11C4529B64A934CA5357"
+    },
+    {
+      "File": "C:\\Program Files\\Honor\\PCManager\\plugins\\hn_plugin_doctor.dll",
+      "Version": "11.0.0.0",
+      "SHA256": "AB8A947612040B5E0A275540D2CFE0BF20D3514B273B8161078515595834B537"
+    }
+  ]
+}

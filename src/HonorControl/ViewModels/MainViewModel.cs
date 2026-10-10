@@ -90,14 +90,12 @@ public sealed class MainViewModel : ViewModelBase
         : snapshot?.Actual.PcManagerOpen == true
         ? "电脑管家运行期间服务只读；保存的配置会等待其关闭。"
         : snapshot?.Actual.PerformanceError is { } error ? "性能状态：" + error
-        : selectedPerformanceMode == 2 && snapshot?.Actual.HighPerformanceSupported != true
-        ? "设备尚未报告高能模式能力；配置可保存，服务当前不会写入。"
         : selectedPerformanceMode == 2 && snapshot?.Actual.HonorPerformancePlanAvailable != true
         ? "Honor Performance 电源方案不可用；配置可保存，服务当前不会写入。"
         : selectedPerformanceMode == 1 && snapshot?.Actual.BalancedPlanAvailable != true
         ? "Windows 平衡电源方案不可用；配置可保存，服务当前不会写入。"
-        : snapshot?.Actual.IsOnAcPower != true ? "保存后，服务会等待 AC 供电再应用。"
-        : snapshot?.Actual.BatteryPercent is not >= 20 ? "保存后，服务会等待电量达到 20% 再应用。"
+        : selectedPerformanceMode == 2 && snapshot?.Actual.IsOnAcPower != true ? "保存后，服务会等待 AC 供电再应用高能模式。"
+        : selectedPerformanceMode == 2 && snapshot?.Actual.BatteryPercent is not >= 20 ? "保存后，服务会等待电量达到 20% 再应用高能模式。"
         : string.Empty;
     public Visibility ChargeHintVisibility => string.IsNullOrEmpty(ChargeModeHint) ? Visibility.Collapsed : Visibility.Visible;
     public Visibility PerformanceHintVisibility => string.IsNullOrEmpty(PerformanceRequirementText) ? Visibility.Collapsed : Visibility.Visible;

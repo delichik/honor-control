@@ -18,14 +18,14 @@ export function isTauriRuntime() {
  * @param {object|null} history 历史查询参数
  * @returns {Promise<{Version:number, Error:string|null, Snapshot?:object, Telemetry?:object, Capabilities?:object, History?:object}>}
  */
-export async function serviceRequest(command, desired = null, history = null) {
+export async function serviceRequest(command, desired = null, history = null, windowsPower = null) {
   if (!isTauriRuntime()) {
     const { mockRequest } = await import('./mock/transport.js')
-    return mockRequest(command, desired, history)
+    return mockRequest(command, desired, history, windowsPower)
   }
 
   try {
-    return await invoke('service_request', { command, desired, history })
+    return await invoke('service_request', { command, desired, history, windowsPower })
   } catch (error) {
     // Rust 侧把所有失败都映射成可以直接展示给用户的中文串；这里只做兜底。
     throw new Error(typeof error === 'string' ? error : (error?.message ?? '与服务通信失败。'))
@@ -78,5 +78,21 @@ export async function launchTray() {
   } catch (error) {
     const message = typeof error === 'string' ? error : (error?.message ?? '启动托盘进程失败。')
     throw new Error(message)
+  }
+}
+
+/** OEM 显示/声音组件在当前交互会话执行；不通过 Session 0 的服务改变显示上下文。 */
+export async function oemRequest(command, args = {}) {
+  if (!['get_oem_features', 'oem_set_display', 'oem_set_audio', 'open_oem_page'].includes(command)) {
+    throw new Error('未知的显示或音频操作。')
+  }
+  if (!isTauriRuntime()) {
+    const { mockOemRequest } = await import('./mock/oem.js')
+    return mockOemRequest(command, args)
+  }
+  try {
+    return await invoke(command, args)
+  } catch (error) {
+    throw new Error(typeof error === 'string' ? error : (error?.message ?? '荣耀显示或音频组件操作失败。'))
   }
 }

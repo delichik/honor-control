@@ -17,9 +17,12 @@ internal sealed class ReconciliationCoordinator : BackgroundService
     private readonly PowerSchemeService schemes = new();
     private readonly SemaphoreSlim wake = new(0, 1);
     private readonly SemaphoreSlim cycle = new(1, 1);
+    private readonly object stateGate = new();
     private ActualState actual = new(ServiceError: "服务正在读取设备状态。");
     private long requestedRevision;
     private long completedRevision;
+    private long performanceRevision;
+    private long completedPerformanceRevision;
     private int chargeFailures;
     private int performanceFailures;
 
@@ -29,22 +32,66 @@ internal sealed class ReconciliationCoordinator : BackgroundService
         this.logger = logger;
     }
 
-    public ServiceSnapshot Snapshot() => new(configuration.Load(), Volatile.Read(ref actual));
+    public ServiceSnapshot Snapshot()
+    {
+        lock (stateGate) return new(configuration.Load(), Volatile.Read(ref actual));
+    }
+
+    public T ExecuteWindowsPowerOperation<T>(Func<T> operation, bool selectingScheme = false)
+    {
+        cycle.Wait();
+        try
+        {
+            lock (stateGate)
+            {
+                DesiredConfiguration desired = configuration.Load();
+                if (selectingScheme && desired.PerformanceMode.HasValue)
+                {
+                    if (desired.AutoReconcile)
+                        throw new InvalidOperationException("性能自动维护正在同步电源方案，请先关闭自动维护后再选择或恢复 Windows 电源方案。");
+                    if (performanceRevision > completedPerformanceRevision)
+                        throw new InvalidOperationException("已保存的性能切换尚未完成，请先重试使性能目标生效，再选择或恢复 Windows 电源方案。");
+                }
+                // Update takes the same gate: a saved mode/auto-maintenance change cannot cross this operation.
+                return operation();
+            }
+        }
+        finally
+        {
+            Signal();
+            cycle.Release();
+        }
+    }
 
     public DesiredConfiguration Update(string command, DesiredConfiguration input)
     {
-        DesiredConfiguration updated = configuration.Update(current => command switch
+        lock (stateGate)
         {
-            "SetCharge" => current with { ChargeStart = input.ChargeStart, ChargeEnd = input.ChargeEnd },
-            "SetPerformance" => current with { PerformanceMode = input.PerformanceMode },
-            "SetAutoReconcile" => current with { AutoReconcile = input.AutoReconcile },
-            _ => throw new InvalidOperationException("未知的配置命令。")
-        });
-        Interlocked.Exchange(ref chargeFailures, 0);
-        Interlocked.Exchange(ref performanceFailures, 0);
-        Interlocked.Increment(ref requestedRevision);
-        Signal();
-        return updated;
+            DesiredConfiguration updated = configuration.Update(current => command switch
+            {
+                "SetCharge" => current with { ChargeStart = input.ChargeStart, ChargeEnd = input.ChargeEnd },
+                "SetPerformance" => current with { PerformanceMode = input.PerformanceMode },
+                "SetAutoReconcile" => current with { AutoReconcile = input.AutoReconcile },
+                _ => throw new InvalidOperationException("未知的配置命令。")
+            });
+            // Saving unrelated settings must not restart a strategy paused after repeated failures.
+            if (command == "SetCharge") Interlocked.Exchange(ref chargeFailures, 0);
+            if (command == "SetPerformance") Interlocked.Exchange(ref performanceFailures, 0);
+            Interlocked.Increment(ref requestedRevision);
+            if (command == "SetPerformance")
+            {
+                performanceRevision++;
+                Volatile.Write(ref actual, Volatile.Read(ref actual) with
+                {
+                    PerformancePending = true,
+                    PendingPerformanceMode = updated.PerformanceMode,
+                    PerformanceError = null,
+                    ServiceError = null
+                });
+            }
+            Signal();
+            return updated;
+        }
     }
 
     private void Signal()
@@ -131,8 +178,17 @@ internal sealed class ReconciliationCoordinator : BackgroundService
         cycle.Wait();
         try
         {
-            long revision = Interlocked.Read(ref requestedRevision);
-            DesiredConfiguration desired = configuration.Load();
+            long revision;
+            long modeRevision;
+            bool shouldApplyPerformance;
+            DesiredConfiguration desired;
+            lock (stateGate)
+            {
+                revision = Interlocked.Read(ref requestedRevision);
+                modeRevision = performanceRevision;
+                desired = configuration.Load();
+                shouldApplyPerformance = desired.AutoReconcile || modeRevision > completedPerformanceRevision;
+            }
             bool managerOpen = IsPcManagerOpen();
             bool supportedDevice = IsHonorComputer();
             SystemPowerSnapshot supply = power.GetSnapshot();
@@ -151,10 +207,11 @@ internal sealed class ReconciliationCoordinator : BackgroundService
             try { powerSchemes = schemes.GetStatus(); }
             catch (Exception exception) { performanceError = Join(performanceError, exception.Message); }
 
-            bool shouldApply = desired.AutoReconcile || revision > Interlocked.Read(ref completedRevision);
+            bool shouldApply = desired.AutoReconcile || revision > Interlocked.Read(ref completedRevision) || shouldApplyPerformance;
             if (!supportedDevice)
             {
                 chargeError = Join(chargeError, "此设备不是受支持的荣耀电脑，服务只读。");
+                if (desired.PerformanceMode.HasValue) performanceError = Join(performanceError, "此设备不是受支持的荣耀电脑，服务只读。");
             }
             else if (managerOpen)
             {
@@ -187,10 +244,10 @@ internal sealed class ReconciliationCoordinator : BackgroundService
                     }
                 }
 
-                if (desired.PerformanceMode is int mode && performance != null && powerSchemes != null)
+                if (shouldApplyPerformance && desired.PerformanceMode is int mode && performance != null && powerSchemes != null)
                 {
                     PowerSchemeInfo? target = powerSchemes.GetTarget(mode);
-                    if (performance.CurrentMode != mode || target != null && powerSchemes.Active.Id != target.Id)
+                    if (performance.CurrentMode != mode || target == null || powerSchemes.Active.Id != target.Id)
                     {
                         if (performanceFailures >= 3) performanceError = Join(performanceError, "重复校正失败，已暂停性能模式写入；请重新保存配置后重试。");
                         else
@@ -230,12 +287,34 @@ internal sealed class ReconciliationCoordinator : BackgroundService
             if (!managerOpen && chargeError == null && performanceError == null)
                 Interlocked.Exchange(ref completedRevision, revision);
 
-            Volatile.Write(ref actual, new ActualState(
+            PowerSchemeInfo? expectedScheme = desired.PerformanceMode is int expectedMode ? powerSchemes?.GetTarget(expectedMode) : null;
+            bool modeVerified = desired.PerformanceMode.HasValue && performance?.CurrentMode == desired.PerformanceMode
+                && expectedScheme != null && powerSchemes?.Active.Id == expectedScheme.Id && performanceError == null;
+            ActualState next = new ActualState(
                 threshold?.Start, threshold?.End, performance?.CurrentMode,
                 powerSchemes?.Active.Name, supply.IsOnAcPower, supply.BatteryPercent,
                 managerOpen, powerSchemes?.Balanced != null, powerSchemes?.HonorPerformance != null,
-                performance?.SupportsHunterMode == true,
-                chargeError, performanceError, null, DateTimeOffset.UtcNow));
+                performance?.CurrentMode == 2,
+                chargeError, performanceError, null, DateTimeOffset.UtcNow,
+                PerformancePending: shouldApplyPerformance && desired.PerformanceMode.HasValue && !modeVerified && (managerOpen || performanceError == null),
+                PendingPerformanceMode: shouldApplyPerformance && !modeVerified ? desired.PerformanceMode : null);
+            lock (stateGate)
+            {
+                if (modeRevision == performanceRevision && modeVerified)
+                    completedPerformanceRevision = modeRevision;
+                // A newer save must not be acknowledged by a GET that started before that save.
+                if (modeRevision != performanceRevision)
+                {
+                    ActualState latest = Volatile.Read(ref actual);
+                    next = next with
+                    {
+                        PerformancePending = latest.PerformancePending,
+                        PendingPerformanceMode = latest.PendingPerformanceMode,
+                        PerformanceError = latest.PerformanceError
+                    };
+                }
+                Volatile.Write(ref actual, next);
+            }
         }
         finally { cycle.Release(); }
     }
@@ -254,23 +333,37 @@ internal sealed class ReconciliationCoordinator : BackgroundService
             PowerSchemeStatus latest = schemes.GetStatus();
             if (latest.Active.Id != target.Id)
                 throw new InvalidOperationException("Windows 电源方案回读不符。");
+            verified = wmi.GetPerformanceStatus();
+            if (verified.CurrentMode != mode) throw new InvalidOperationException("同步 Windows 电源方案后的固件性能模式回读不符。");
             return (verified, latest);
         }
-        catch
+        catch (Exception failure)
         {
+            List<string> rollbackErrors = new();
             if (!IsPcManagerOpen())
             {
                 if (firmwareChanged && previous.CurrentMode is 1 or 2)
                 {
                     try { wmi.SetPerformanceMode(previous.CurrentMode); }
-                    catch (Exception exception) { logger.LogError(exception, "Firmware rollback failed"); }
+                    catch (Exception exception)
+                    {
+                        logger.LogError(exception, "Firmware rollback failed");
+                        rollbackErrors.Add("固件回滚失败：" + exception.Message);
+                    }
                 }
                 if (schemeChanged)
                 {
                     try { schemes.SetActive(previousSchemes.Active.Id); }
-                    catch (Exception exception) { logger.LogError(exception, "Power scheme rollback failed"); }
+                    catch (Exception exception)
+                    {
+                        logger.LogError(exception, "Power scheme rollback failed");
+                        rollbackErrors.Add("Windows 电源方案回滚失败：" + exception.Message);
+                    }
                 }
             }
+            else rollbackErrors.Add("荣耀电脑管家已打开，已停止回滚写入；请检查当前固件模式与电源方案。");
+            if (rollbackErrors.Count > 0)
+                throw new InvalidOperationException(failure.Message + "；" + string.Join("；", rollbackErrors), failure);
             throw;
         }
     }
@@ -278,10 +371,13 @@ internal sealed class ReconciliationCoordinator : BackgroundService
     private static void ValidatePerformancePreconditions(SystemPowerSnapshot supply, PerformanceStatus status, PowerSchemeInfo? target, int mode)
     {
         if (status.CurrentMode is not (1 or 2)) throw new InvalidOperationException("固件性能模式无法识别。");
-        if (supply.IsOnAcPower != true) throw new InvalidOperationException("未确认 AC 供电。");
-        if (supply.BatteryPercent is not >= 20) throw new InvalidOperationException("电量不足 20% 或无法读取。");
         if (target == null) throw new InvalidOperationException("目标 Windows 电源方案不存在。");
-        if (mode == 2 && !status.SupportsHunterMode) throw new InvalidOperationException("设备未报告高能模式能力。");
+        // Returning to smart mode must remain available after unplugging or at low battery.
+        if (mode == 2)
+        {
+            if (supply.IsOnAcPower != true) throw new InvalidOperationException("未确认 AC 供电。");
+            if (supply.BatteryPercent is not >= 20) throw new InvalidOperationException("电量不足 20% 或无法读取。");
+        }
     }
 
     private static string Join(string? existing, string next) =>

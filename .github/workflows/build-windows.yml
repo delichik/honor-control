@@ -37,6 +37,10 @@ jobs:
         shell: pwsh
         run: ./tools/Test-PowerSchemeRead.ps1
 
+      - name: Test Honor packet parsing (no hardware writes)
+        shell: pwsh
+        run: ./tools/Test-OemTelemetryProtocol.ps1
+
       # 控制面板与托盘已经取代原来的 WinUI 界面（src/HonorControl 仍在仓库里作为参考实现，
       # 但不再进入安装包：它与服务端 v2 协议已经不兼容）。
       # 这一步曾经是 continue-on-error（Rust 外壳首次编译前）；现在它编译稳定，改为硬门禁。
@@ -88,6 +92,8 @@ jobs:
           dotnet build tools/BatteryProbe/BatteryProbe.csproj --configuration Release
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
           dotnet build tools/HistoryProbe/HistoryProbe.csproj --configuration Release
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          dotnet run --project tools/WindowsPowerProbe/WindowsPowerProbe.csproj --configuration Release
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
 
       # 安装器必须包含控制面板。面板构建已经变成硬门禁（见上一步），这里只是把前置条件写清楚：

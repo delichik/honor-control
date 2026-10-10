@@ -1,5 +1,5 @@
 /**
- * 与服务（命名管道 \\.\pipe\HonorControl.Service.v1）的通信契约，v4。
+ * 与服务（命名管道 \\.\pipe\HonorControl.Service.v1）的通信契约，v5。
  *
  * 约定（与服务端 .NET 8 实现一致，改动前必须两边同步）：
  * - 请求与响应都是**单行** UTF-8 JSON，以 \n 结束；一次连接只跑一问一答。
@@ -11,14 +11,14 @@
  * 服务拿不到的指标由 data/mock 补齐，详见 data/mock/sources.js。
  */
 
-export const PROTOCOL_VERSION = 4
+export const PROTOCOL_VERSION = 5
 
 /** 与服务端 ServiceContract.PipeName 保持一致。 */
 export const PIPE_NAME = String.raw`\\.\pipe\HonorControl.Service.v1`
 
 /**
  * 服务端 PipeServer.Execute 支持的命令。
- * 这是 v4 的完整命令集：服务端与面板同步发布，不保留旧版本分支。
+ * 服务端与面板同步发布，不保留旧版本分支。
  */
 export const COMMANDS = {
   GetState: 'GetState',
@@ -28,6 +28,9 @@ export const COMMANDS = {
   SetCharge: 'SetCharge',
   SetPerformance: 'SetPerformance',
   SetAutoReconcile: 'SetAutoReconcile',
+  GetWindowsPower: 'GetWindowsPower',
+  SetWindowsPower: 'SetWindowsPower',
+  RestoreWindowsPower: 'RestoreWindowsPower',
 }
 
 /** 历史曲线的可选时间范围，与服务端支持的范围一致。 */
@@ -43,7 +46,7 @@ export const HISTORY_METRICS = {
   systemLoad: 'SystemLoad',
 }
 
-/** 性能模式：服务端只认 1（智能）与 2（高能），与 0x0C07 的 payload 对应。 */
+/** 性能模式：1（智能）与 2（高能），对应 0x0F04 的状态字节 0 / 1。 */
 export const PERFORMANCE_MODES = [
   { id: 1, label: '智能模式', hint: '按负载自动平衡功耗与风扇' },
   { id: 2, label: '高能模式', hint: '提高功耗墙与风扇转速上限' },
@@ -76,7 +79,11 @@ export const POWER_EPSILON_W = 0.6
  * @property {number|null} BatteryPercent        电量百分比
  * @property {number|null} BatteryTemperatureC  电池温度：服务从硬件监测库读取，无读数时为空
  * @property {number|null} BatteryPowerW        电池功率，带符号（正=充入，负=放出）
- * @property {number|null} AdapterPowerW        适配器输出功率：当前服务未接入电流读取，保持为空
+ * @property {number|null} AdapterPowerW        实时适配器功率：未确认实时电流语义时保持为空
+ * @property {number|null} AdapterVoltageV      USB 输入电压诊断，V
+ * @property {number|null} AdapterCurrentA      官方 USB 电流值，A；不保证为实时测量
+ * @property {number|null} AdapterReportedPowerW 官方瓦数计算值，不用于实时负载或历史
+ * @property {string|null} AdapterDiagnosticError
  * @property {number|null} SystemLoadW          系统负载功率（服务按 适配器 − 充入功率 派生）
  * @property {number|null} PerformanceMode      实际模式：1=智能 2=高能
  * @property {number|null} ChargeStartPercent   实际开始阈值
@@ -125,6 +132,10 @@ export function emptyTelemetry() {
     BatteryTemperatureC: null,
     BatteryPowerW: null,
     AdapterPowerW: null,
+    AdapterVoltageV: null,
+    AdapterCurrentA: null,
+    AdapterReportedPowerW: null,
+    AdapterDiagnosticError: null,
     SystemLoadW: null,
     PerformanceMode: null,
     ChargeStartPercent: null,

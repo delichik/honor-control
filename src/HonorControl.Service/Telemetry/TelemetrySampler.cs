@@ -1,5 +1,6 @@
 using HonorControl.Contracts;
 using HonorControl.Service.Hardware;
+using HonorControl.Services;
 using Microsoft.Extensions.Hosting;
 using Microsoft.Extensions.Logging;
 
@@ -28,6 +29,7 @@ internal sealed class TelemetrySampler : BackgroundService
 
     /// <summary>循环次数变化极慢，且要开 CIM 会话，10 分钟读一次。</summary>
     private static readonly TimeSpan CycleCountRefreshInterval = TimeSpan.FromMinutes(10);
+    private static readonly TimeSpan OemRefreshInterval = TimeSpan.FromSeconds(10);
 
     private readonly ReconciliationCoordinator coordinator;
     private readonly BatteryService battery = new();
@@ -35,6 +37,9 @@ internal sealed class TelemetrySampler : BackgroundService
     private readonly ILogger<TelemetrySampler> logger;
     private readonly HardwareSensorReader hardware;
     private readonly AcpiThermalZoneReader acpiThermalZones;
+    private readonly OemWmiClient oem = new();
+    private OemTelemetryReading oemSnapshot = new();
+    private DateTimeOffset oemReadAt = DateTimeOffset.MinValue;
 
     private TelemetrySnapshot current = new(DateTimeOffset.Now, null, null);
     private ServiceSnapshot? snapshot;
@@ -110,6 +115,17 @@ internal sealed class TelemetrySampler : BackgroundService
     {
         DateTimeOffset now = DateTimeOffset.Now;
         hardwareSnapshot = hardware.Read();
+        if (now - oemReadAt >= OemRefreshInterval)
+        {
+            try { oemSnapshot = oem.GetTelemetry(); }
+            catch (Exception exception)
+            {
+                // Reset failed readings; never carry an old successful sample indefinitely.
+                oemSnapshot = new(BatteryTemperatureError: exception.Message, AdapterDiagnosticError: exception.Message);
+                logger.LogDebug(exception, "荣耀 NTC/USB 诊断采样失败");
+            }
+            oemReadAt = now;
+        }
 
         if (now - snapshotReadAt >= SnapshotRefreshInterval)
         {
@@ -145,7 +161,7 @@ internal sealed class TelemetrySampler : BackgroundService
             CheckedAt: now,
             PluggedIn: reading.PluggedIn,
             BatteryPercent: reading.Percent ?? actual.BatteryPercent,
-            BatteryTemperatureC: hardwareSnapshot.BatteryTemperatureC,
+            BatteryTemperatureC: oemSnapshot.BatteryTemperatureC ?? hardwareSnapshot.BatteryTemperatureC,
             BatteryPowerW: reading.PowerW,
             AdapterPowerW: null,
             SystemLoadW: systemLoadW,
@@ -160,7 +176,11 @@ internal sealed class TelemetrySampler : BackgroundService
             Fans: hardwareSnapshot.Fans,
             PcManagerOpen: actual.PcManagerOpen,
             ChargeError: actual.ChargeError,
-            ServiceError: actual.ServiceError);
+            ServiceError: actual.ServiceError,
+            AdapterVoltageV: reading.PluggedIn == true ? oemSnapshot.AdapterVoltageV : null,
+            AdapterCurrentA: reading.PluggedIn == true ? oemSnapshot.AdapterCurrentA : null,
+            AdapterReportedPowerW: reading.PluggedIn == true ? oemSnapshot.AdapterReportedPowerW : null,
+            AdapterDiagnosticError: reading.PluggedIn == true ? oemSnapshot.AdapterDiagnosticError : null);
     }
 
     private Capabilities ProbeCapabilities()
@@ -183,7 +203,7 @@ internal sealed class TelemetrySampler : BackgroundService
             hardwareSnapshot.Sensors.Count + acpiThermalZones.Read().Count);
     }
 
-    private static Capabilities BuildCapabilities(
+    private Capabilities BuildCapabilities(
         bool hasCycleCount,
         HardwareSensorSnapshot readings,
         bool hasFullChargeCapacity,
@@ -191,13 +211,14 @@ internal sealed class TelemetrySampler : BackgroundService
     {
         Dictionary<string, string> missing = new()
         {
-            ["BatteryTemperature"] = readings.BatteryTemperatureC.HasValue
+            ["BatteryTemperature"] = oemSnapshot.BatteryTemperatureC.HasValue || readings.BatteryTemperatureC.HasValue
                 ? string.Empty
-                : "硬件监测库未从此设备返回电池温度。",
+                : oemSnapshot.BatteryTemperatureError ?? "荣耀 NTC 与硬件监测库未返回电池温度。",
             ["BatteryHealth"] = readings.BatteryDesignCapacityWh.HasValue && hasFullChargeCapacity
                 ? string.Empty
                 : "硬件监测库或 Windows 电池接口未返回设计容量与满充容量。",
             ["AdapterPower"] = "已探测到扩展电流值，但单位及实时/额定语义未确认；服务暂不换算为实时功率。",
+            ["AdapterDiagnostics"] = oemSnapshot.AdapterDiagnosticError ?? "USB 输入电压、电流与乘积仅供诊断，尚未确认是实时功耗或铭牌额定功率。",
             ["Sensors"] = sensorCount > 0
                 ? string.Empty
                 : "硬件库与 ACPI 均未从此设备返回温度传感器。",
@@ -212,10 +233,11 @@ internal sealed class TelemetrySampler : BackgroundService
             ["BatteryPercent"] = true,
             ["BatteryPower"] = true,
             ["BatteryCycleCount"] = hasCycleCount,
-            ["BatteryTemperature"] = readings.BatteryTemperatureC.HasValue,
+            ["BatteryTemperature"] = oemSnapshot.BatteryTemperatureC.HasValue || readings.BatteryTemperatureC.HasValue,
             ["BatteryDesignCapacity"] = readings.BatteryDesignCapacityWh.HasValue,
             ["BatteryHealth"] = readings.BatteryDesignCapacityWh.HasValue && hasFullChargeCapacity,
             ["AdapterPower"] = false,
+            ["AdapterDiagnostics"] = oemSnapshot.AdapterVoltageV.HasValue && oemSnapshot.AdapterCurrentA.HasValue,
             ["Sensors"] = sensorCount > 0,
             ["Fans"] = readings.Fans.Count > 0,
             ["PowerLimits"] = false,
